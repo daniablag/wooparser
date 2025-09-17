@@ -1,0 +1,64 @@
+site:
+  base_url: ""
+  rate_limit_rps: 0.5
+  obey_robots: true
+  stop_on_captcha: true
+
+listing:
+  product_link: ""
+  pagination:
+    type: "next"  # next | param | load_more
+    next_selector: ""
+    param_name: "page"
+    load_more_selector: ""
+
+product:
+  selectors:
+    title: ""
+    sku: ""
+    price_regular: ""
+    price_sale: ""
+    description_html: ""
+    gallery_imgs: ""
+
+attributes_blocks:
+  - type: "table"  # table | list | dl
+    row_selector: ""
+    name_selector: ""
+    value_selector: ""
+
+variations:
+  type: "none"   # matrix | selects | none
+  columns:
+    color: ""
+    size: ""
+    price: ""
+    sku: ""
+    stock: ""
+
+images:
+  order: [srcset, data-large, transform, src]
+  transform:
+    rules: []  # например: удалить -150x150, добавить ?w=1600
+  min_width: 600
+  max_per_product: 8
+
+normalize:
+  attr_name_map_file: "attributes.map.csv"
+  value_maps_dir: "values"
+
+categories:
+  source: "breadcrumbs"
+  breadcrumbs_selector: ""
+  mapping_file: "categories.map.csv"
+  auto_create: true
+
+clustering:
+  enabled: true
+  parent_key_priority: [jsonld.mpn, sku_family, model_name, url_pattern, title_core]
+  default_attribute_policy: first
+
+policies:
+  create_global_attributes: whitelist
+  attribute_whitelist: [pa_color, pa_size, pa_brand, pa_material]
+  create_terms: true
