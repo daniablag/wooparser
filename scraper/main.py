@@ -21,10 +21,10 @@ def main_callback(
         None, "--rate-limit", help="Ограничение RPS для сетевых вызовов (override .env)"
     ),
     include: Optional[List[str]] = typer.Option(
-        None, "--include", help="Включить только URL, содержащие подстроки (можно несколько)", multiple=True
+        None, "--include", help="Включить только URL, содержащие подстроки (можно повторять ключ)"
     ),
     exclude: Optional[List[str]] = typer.Option(
-        None, "--exclude", help="Исключить URL, содержащие подстроки (можно несколько)", multiple=True
+        None, "--exclude", help="Исключить URL, содержащие подстроки (можно повторять ключ)"
     ),
 ) -> None:
     if download_media is not None:

@@ -1,6 +1,7 @@
 import subprocess
 import sys
 
+
 def test_cli_help():
     proc = subprocess.run([sys.executable, "-m", "scraper", "--help"], capture_output=True, text=True)
     assert proc.returncode == 0
