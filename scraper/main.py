@@ -77,7 +77,8 @@ def push_batch(profile: str = typer.Option(..., "--profile"), file: Path = typer
     from .scrape import iterate_urls_from_file
     for url in iterate_urls_from_file(file, limit=limit, offset=offset):
         try:
-            push_product.callback(profile=profile, url=str(url), draft=draft, publish=publish)
+            # вызывать как обычную функцию
+            push_product(profile=profile, url=str(url), draft=draft, publish=publish)
         except SystemExit as e:
             if resume:
                 rprint(f"[yellow]Ошибка для {url}, продолжаю (--resume)[/yellow]")
