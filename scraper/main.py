@@ -1,10 +1,42 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+from typing import List, Optional
+import os
 import typer
 from rich import print as rprint
 
 app = typer.Typer(add_completion=False, help="CLI для парсинга и загрузки в WooCommerce")
+
+
+@app.callback()
+def main_callback(
+    download_media: Optional[bool] = typer.Option(
+        None, "--download-media/--no-download-media", help="Скачивать медиа (override .env)"
+    ),
+    headless: Optional[bool] = typer.Option(
+        None, "--headless/--no-headless", help="Безголовый браузер для парсинга (override .env)"
+    ),
+    rate_limit: Optional[float] = typer.Option(
+        None, "--rate-limit", help="Ограничение RPS для сетевых вызовов (override .env)"
+    ),
+    include: Optional[List[str]] = typer.Option(
+        None, "--include", help="Включить только URL, содержащие подстроки (можно несколько)", multiple=True
+    ),
+    exclude: Optional[List[str]] = typer.Option(
+        None, "--exclude", help="Исключить URL, содержащие подстроки (можно несколько)", multiple=True
+    ),
+) -> None:
+    if download_media is not None:
+        os.environ["DOWNLOAD_MEDIA"] = "true" if download_media else "false"
+    if headless is not None:
+        os.environ["HEADLESS"] = "true" if headless else "false"
+    if rate_limit is not None:
+        os.environ["RATE_LIMIT_RPS"] = str(rate_limit)
+    if include:
+        os.environ["CLI_INCLUDE"] = ",".join(include)
+    if exclude:
+        os.environ["CLI_EXCLUDE"] = ",".join(exclude)
 
 @app.command("init-db")
 def init_db_cmd(db: Path = typer.Option(Path("wooparser.db"), "--db", help="Путь к SQLite БД")) -> None:
@@ -75,7 +107,21 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
 @app.command("push-batch")
 def push_batch(profile: str = typer.Option(..., "--profile"), file: Path = typer.Option(..., "--file"), draft: bool = False, publish: bool = False, limit: int = 50, offset: int = 0, resume: bool = False) -> None:
     from .scrape import iterate_urls_from_file
+    include_patterns = os.environ.get("CLI_INCLUDE", "").split(",") if os.environ.get("CLI_INCLUDE") else []
+    exclude_patterns = os.environ.get("CLI_EXCLUDE", "").split(",") if os.environ.get("CLI_EXCLUDE") else []
+
+    def allowed(u: str) -> bool:
+        if include_patterns:
+            if not any(p for p in include_patterns if p and p in u):
+                return False
+        if exclude_patterns:
+            if any(p for p in exclude_patterns if p and p in u):
+                return False
+        return True
+
     for url in iterate_urls_from_file(file, limit=limit, offset=offset):
+        if not allowed(str(url)):
+            continue
         try:
             # вызывать как обычную функцию
             push_product(profile=profile, url=str(url), draft=draft, publish=publish)
