@@ -27,10 +27,10 @@ class WooClient:
         return cls(base_url=s.wp_base_url, api_version=s.wc_api_version, auth=auth, timeout=s.requests_timeout, rate_limit_rps=s.rate_limit_rps)
 
     def _wc_url(self, endpoint: str) -> str:
-        return f"{self.base_url}/wp-json/{self.api_version}/{endpoint.lstrip(/)}"
+        return f"{self.base_url}/wp-json/{self.api_version}/{endpoint.lstrip('/')}"
 
     def _wp_url(self, endpoint: str) -> str:
-        return f"{self.base_url}/wp-json/wp/v2/{endpoint.lstrip(/)}"
+        return f"{self.base_url}/wp-json/wp/v2/{endpoint.lstrip('/')}"
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8), reraise=True)
     def _request(self, method: str, url: str, *, json: Optional[dict] = None, params: Optional[dict] = None, headers: Optional[dict] = None) -> Any:

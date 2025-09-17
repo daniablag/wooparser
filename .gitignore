@@ -1,6 +1,51 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyc
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Environments
+.venv/
+venv/
+env/
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Playwright
+.playwright/
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Coverage/test
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Python
+__pycache__/
+*.py[cod]
 *$py.class
 
 # Virtual envs
