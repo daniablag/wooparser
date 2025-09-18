@@ -7,7 +7,7 @@ SCHEMA = (
     "CREATE TABLE IF NOT EXISTS products (\n"
     " external_id TEXT PRIMARY KEY,\n"
     " woo_product_id INTEGER,\n"
-    " last_pushed_at TEXT DEFAULT (datetime(now))\n"
+    " last_pushed_at TEXT DEFAULT CURRENT_TIMESTAMP\n"
     ");"
 )
 
@@ -29,7 +29,7 @@ def upsert_product_checkpoint(external_id: str, woo_product_id: int, db_path: Pa
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO products(external_id, woo_product_id) VALUES(?, ?)\n"
-            "ON CONFLICT(external_id) DO UPDATE SET woo_product_id=excluded.woo_product_id, last_pushed_at=datetime(now)",
+            "ON CONFLICT(external_id) DO UPDATE SET woo_product_id=excluded.woo_product_id, last_pushed_at=CURRENT_TIMESTAMP",
             (external_id, woo_product_id),
         )
         conn.commit()
