@@ -149,6 +149,9 @@ def scrape_product(url: str, profile: str) -> Product:
         # удалить style/script
         for t in container.find_all(["style", "script"]):
             t.decompose()
+        # развернуть теги <font>
+        for t in list(container.find_all("font")):
+            t.unwrap()
         # удалить inline style-атрибуты
         for t in container.find_all(True):
             if "style" in t.attrs:
