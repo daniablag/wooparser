@@ -51,7 +51,7 @@ normalize:
 categories:
   source: "breadcrumbs"
   breadcrumbs_selector: ".breadcrumbs .breadcrumbs-i"
-  breadcrumbs_name_selector: "[itemprop=\\"name\\"]"
+  breadcrumbs_name_selector: '[itemprop="name"]'
   breadcrumbs_exclude_names: ["Головна", "Каталог"]
   mapping_file: "categories.map.csv"
   auto_create: true
