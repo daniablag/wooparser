@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 import csv
 import re
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 import yaml
 from .models import Product, Image
 from .config import get_settings
@@ -142,7 +142,27 @@ def scrape_product(url: str, profile: str) -> Product:
         regular_price = sale_price
 
     desc_el = soup.select_one(sel.get("description_html", ""))
-    description_html = desc_el.decode_contents() if desc_el else ""
+
+    def _sanitize_html_fragment(container: Optional[Tag]) -> str:
+        if not container:
+            return ""
+        # удалить style/script
+        for t in container.find_all(["style", "script"]):
+            t.decompose()
+        # удалить inline style-атрибуты
+        for t in container.find_all(True):
+            if "style" in t.attrs:
+                del t["style"]
+        # удалить пустые <p> (только переносы/пробелы)
+        for p in list(container.find_all("p")):
+            text = p.get_text(strip=True)
+            if not text:
+                has_meaningful_child = any(getattr(ch, "name", None) not in (None, "br") for ch in p.children)
+                if not has_meaningful_child:
+                    p.decompose()
+        return container.decode_contents()
+
+    description_html = _sanitize_html_fragment(desc_el)
 
     # Галерея
     images: List[Image] = []
