@@ -1,11 +1,102 @@
 from __future__ import annotations
-from typing import List
+from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from urllib.parse import urljoin
+import csv
+import re
+import httpx
+from bs4 import BeautifulSoup
+import yaml
 from .models import Product, Image
+from .config import get_settings
+from .utils import RateLimiter, get_logger
+
+logger = get_logger("scrape")
 
 FIXTURE_URL = "https://example.com/fixture"
 
 
+def _workspace_root() -> Path:
+    # Предполагаем, что модуль запущен из корня проекта (/workspaces/wooparser)
+    return Path.cwd()
+
+
+def _profile_dir(profile: str) -> Path:
+    return _workspace_root() / "profiles" / profile
+
+
+def _load_manifest(profile: str) -> Dict:
+    mf = _profile_dir(profile) / "manifest.yaml"
+    with mf.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _load_csv_map(path: Path) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    if not path.exists():
+        return mapping
+    with path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        headers = [h.strip() for h in (reader.fieldnames or [])]
+        rows = list(reader)
+    if path.name == "attributes.map.csv":
+        # donor_name,pa_slug,is_variation
+        for r in rows:
+            donor = (r.get("donor_name") or "").strip()
+            pa = (r.get("pa_slug") or "").strip()
+            if donor and pa:
+                mapping[donor] = pa
+    elif path.name == "categories.map.csv":
+        # donor_path,woo_category_slug
+        for r in rows:
+            donor = (r.get("donor_path") or "").strip()
+            slug = (r.get("woo_category_slug") or "").strip()
+            if donor and slug:
+                mapping[donor] = slug
+    else:
+        # values/*.csv: donor_value,normalized_value
+        for r in rows:
+            donor = (r.get("donor_value") or "").strip()
+            norm = (r.get("normalized_value") or "").strip()
+            if donor:
+                mapping[donor] = norm or donor
+    return mapping
+
+
+def _load_values_maps(profile: str) -> Dict[str, Dict[str, str]]:
+    values_dir = _profile_dir(profile) / "values"
+    value_maps: Dict[str, Dict[str, str]] = {}
+    if not values_dir.exists():
+        return value_maps
+    for p in values_dir.glob("pa_*.csv"):
+        pa_slug = p.stem
+        value_maps[pa_slug] = _load_csv_map(p)
+    return value_maps
+
+
+def _text(el) -> str:
+    return re.sub(r"\s+", " ", el.get_text(strip=True)) if el else ""
+
+
+def _price_to_float(text: str) -> Optional[float]:
+    if not text:
+        return None
+    # Убираем все кроме цифр и разделителей
+    cleaned = re.sub(r"[^0-9,\.]+", "", text)
+    # Приводим запятую к точке, убираем лишние пробелы
+    cleaned = cleaned.replace(" ", "").replace(",", ".")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _abs_url(base: str, url: str) -> str:
+    return urljoin(base, url)
+
+
 def scrape_product(url: str, profile: str) -> Product:
+    # Фикстура для теста интеграции
     if url == FIXTURE_URL:
         return Product(
             external_id="fixture-001",
@@ -24,23 +115,184 @@ def scrape_product(url: str, profile: str) -> Product:
             stock_quantity=10,
             variations=[],
         )
-    # Заглушка для реальных парсеров (DOM/JSON-LD/Playwright)
-    raise NotImplementedError("Парсинг реальных доноров пока не реализован в минимальном E2E")
+
+    manifest = _load_manifest(profile)
+    settings = get_settings()
+    rate = RateLimiter(settings.rate_limit_rps)
+
+    rate.wait()
+    with httpx.Client(timeout=settings.requests_timeout) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        html = resp.text
+
+    soup = BeautifulSoup(html, "lxml")
+    site_base = manifest.get("site", {}).get("base_url", "")
+
+    sel = manifest.get("product", {}).get("selectors", {})
+    title = _text(soup.select_one(sel.get("title", "")))
+    sku = _text(soup.select_one(sel.get("sku", "")))
+
+    sale_el = soup.select_one(sel.get("price_sale", "")) if sel.get("price_sale") else None
+    reg_el = soup.select_one(sel.get("price_regular", "")) if sel.get("price_regular") else None
+    sale_price = _price_to_float(_text(sale_el)) if sale_el else None
+    regular_price = _price_to_float(_text(reg_el)) if reg_el else None
+    if sale_price and not regular_price:
+        # иногда regular в другом месте — минимально подстрахуемся
+        regular_price = sale_price
+
+    desc_el = soup.select_one(sel.get("description_html", ""))
+    description_html = desc_el.decode_contents() if desc_el else ""
+
+    # Галерея
+    images: List[Image] = []
+    gal_selector = sel.get("gallery_imgs")
+    if gal_selector:
+        for img in soup.select(gal_selector):
+            src = (img.get("src") or "").strip()
+            alt = (img.get("alt") or "").strip() or title
+            if not src:
+                continue
+            full = _abs_url(site_base or url, src)
+            images.append(Image(url=full, alt=alt))
+    # Убираем дубли, сохраняя порядок
+    seen: set = set()
+    unique_images: List[Image] = []
+    for im in images:
+        if im.url not in seen:
+            unique_images.append(im)
+            seen.add(im.url)
+    images = unique_images
+
+    # Вариации/атрибуты
+    attributes: Dict[str, List[str]] = {}
+    default_attributes: Dict[str, str] = {}
+    product_type = "simple"
+
+    # Собираем кнопки вариаций
+    active_sel = manifest.get("variations", {}).get("active_selector")
+    obem_buttons = soup.select(".product__modifications .modification .modification__body .modification__list .modification__button")
+    values_map = _load_values_maps(profile)
+    attr_map = _load_csv_map(_profile_dir(profile) / "attributes.map.csv")
+
+    def _normalize(pa_slug: str, value: str) -> str:
+        m = values_map.get(pa_slug, {})
+        return m.get(value, value)
+
+    if obem_buttons:
+        raw_values = [_text(b) for b in obem_buttons]
+        pa_slug = attr_map.get("Обʼєм", "pa_obyem")
+        norm_values = [_normalize(pa_slug, v) for v in raw_values if v]
+        if norm_values:
+            attributes[pa_slug] = norm_values
+        if len(obem_buttons) > 1:
+            product_type = "variable"
+        # дефолт из активной кнопки
+        if active_sel:
+            active = soup.select_one(active_sel)
+            if active:
+                active_val = _normalize(pa_slug, _text(active))
+                if active_val:
+                    default_attributes[pa_slug] = active_val
+
+    # Категории по крошкам
+    categories: List[str] = []
+    cat_map = _load_csv_map(_profile_dir(profile) / "categories.map.csv")
+    bc_sel = manifest.get("categories", {}).get("breadcrumbs_selector")
+    name_sel = manifest.get("categories", {}).get("breadcrumbs_name_selector")
+    exclude_names = set(manifest.get("categories", {}).get("breadcrumbs_exclude_names", []) or [])
+    if bc_sel:
+        crumbs = soup.select(bc_sel) or []
+        names: List[str] = []
+        for c in crumbs:
+            name_el = c.select_one(name_sel) if name_sel else None
+            name = _text(name_el or c)
+            if not name:
+                continue
+            names.append(name)
+        # отфильтровать служебные и последний (товар)
+        names = [n for n in names if n not in exclude_names]
+        if names:
+            names = names[:-1]  # убрать последний элемент – название товара
+        for n in names:
+            slug = cat_map.get(n)
+            if slug and slug not in categories:
+                categories.append(slug)
+
+    # Бренд CROOZ
+    attributes.setdefault("pa_brand", ["CROOZ"])  # всегда CROOZ
+
+    external_id = _external_id_from_url(url)
+
+    return Product(
+        external_id=external_id,
+        name=title or external_id,
+        sku=sku or None,
+        description_html=description_html or None,
+        short_description_html=None,
+        categories=categories,
+        tags=[],
+        images=images,
+        attributes=attributes,
+        default_attributes=default_attributes,
+        type=product_type,
+        regular_price=regular_price if product_type == "simple" else None,
+        sale_price=sale_price if product_type == "simple" else None,
+        stock_quantity=None,
+        variations=[],
+    )
+
+
+def _external_id_from_url(url: str) -> str:
+    # Используем последний сегмент без завершающего слеша
+    u = url.rstrip("/")
+    return u.rsplit("/", 1)[-1]
 
 
 def collect_category_urls(category_url: str, profile: str, limit: int = 20, offset: int = 0) -> List[str]:
-    # Для минимального E2E используем фикстуру
-    urls = [FIXTURE_URL]
-    return urls[offset : offset + limit]
+    manifest = _load_manifest(profile)
+    settings = get_settings()
+    rate = RateLimiter(settings.rate_limit_rps)
+
+    product_sel = manifest.get("listing", {}).get("product_link") or "a"
+    next_sel = manifest.get("listing", {}).get("pagination", {}).get("next_selector")
+
+    results: List[str] = []
+    url = category_url
+    while len(results) < (offset + limit) and url:
+        rate.wait()
+        with httpx.Client(timeout=settings.requests_timeout) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "lxml")
+        site_base = manifest.get("site", {}).get("base_url", url)
+        for a in soup.select(product_sel):
+            href = a.get("href")
+            if not href:
+                continue
+            full = _abs_url(site_base, href)
+            results.append(full)
+            if len(results) >= (offset + limit):
+                break
+        if next_sel:
+            next_a = soup.select_one(next_sel)
+            url = _abs_url(site_base, next_a.get("href")) if next_a and next_a.get("href") else None
+        else:
+            break
+    return results[offset : offset + limit]
 
 
 def cluster_preview(profile: str, from_category: str, limit: int = 50):
-    # Для фикстуры один кластер
-    return [{"parent_key": "fixture-001", "urls": [FIXTURE_URL]}]
+    # Простая кластеризация по базовому external_id (последний сегмент URL без вариации)
+    urls = collect_category_urls(from_category, profile=profile, limit=limit)
+    clusters: Dict[str, List[str]] = {}
+    for u in urls:
+        key = _external_id_from_url(u)
+        clusters.setdefault(key, []).append(u)
+    return [{"parent_key": k, "urls": v} for k, v in clusters.items()]
 
 
 def iterate_urls_from_file(path, limit: int = 50, offset: int = 0):
-    from pathlib import Path
     p = Path(path)
     if not p.exists():
         return []
