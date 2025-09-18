@@ -1,45 +1,46 @@
 site:
-  base_url: ""
+  base_url: "https://crooz.in.ua"
   rate_limit_rps: 0.5
   obey_robots: true
   stop_on_captcha: true
 
 listing:
-  product_link: ""
+  product_link: "a.catalogCard-image"
   pagination:
     type: "next"  # next | param | load_more
-    next_selector: ""
+    next_selector: "a.pager__item--forth"
     param_name: "page"
     load_more_selector: ""
 
 product:
   selectors:
-    title: ""
-    sku: ""
-    price_regular: ""
-    price_sale: ""
-    description_html: ""
-    gallery_imgs: ""
+    title: ".product-title"
+    sku: ".product-header__code"
+    price_regular: ".product-price__item"
+    price_sale: ".product-price__item.product-price__item--new"
+    description_html: ".product-description.j-product-description .text"
+    gallery_imgs: ".gallery__photos-list .gallery__item .gallery__photo-img"
 
 attributes_blocks:
-  - type: "table"  # table | list | dl
-    row_selector: ""
-    name_selector: ""
-    value_selector: ""
+  - type: "list"  # table | list | dl
+    row_selector: ".product__modifications .modification"
+    name_selector: ".modification__head .modification__title"
+    value_selector: ".modification__body .modification__list .modification__button"
 
 variations:
-  type: "none"   # matrix | selects | none
+  type: "selects"   # matrix | selects | none
   columns:
     color: ""
-    size: ""
+    size: ".modification__body .modification__list .modification__button"
     price: ""
     sku: ""
     stock: ""
+  active_selector: "a.modification__button.modification__button--active"
 
 images:
-  order: [srcset, data-large, transform, src]
+  order: [src]
   transform:
-    rules: []  # например: удалить -150x150, добавить ?w=1600
+    rules: []
   min_width: 600
   max_per_product: 8
 
@@ -49,7 +50,9 @@ normalize:
 
 categories:
   source: "breadcrumbs"
-  breadcrumbs_selector: ""
+  breadcrumbs_selector: ".breadcrumbs .breadcrumbs-i"
+  breadcrumbs_name_selector: "[itemprop=\\"name\\"]"
+  breadcrumbs_exclude_names: ["Головна", "Каталог"]
   mapping_file: "categories.map.csv"
   auto_create: true
 
@@ -60,5 +63,5 @@ clustering:
 
 policies:
   create_global_attributes: whitelist
-  attribute_whitelist: [pa_color, pa_size, pa_brand, pa_material]
+  attribute_whitelist: [pa_obyem, pa_brand]
   create_terms: true
