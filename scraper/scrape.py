@@ -278,6 +278,7 @@ def scrape_product(url: str, profile: str) -> Product:
                     if val:
                         value_to_label[val] = _normalize(pa_slug, label)
                 ajax_hashes: Dict[str, str] = {}
+                tmp_vars: List[Variation] = []
                 for val, label in value_to_label.items():
                     try:
                         rate.wait()
@@ -339,7 +340,7 @@ def scrape_product(url: str, profile: str) -> Product:
                             # сохраняем None, чтобы fallback ниже заполнил данными
                             pass
 
-                        variations_data.append(Variation(
+                        tmp_vars.append(Variation(
                             sku=var_sku or "",
                             regular_price=var_price or (regular_price or 0.0),
                             sale_price=None,
@@ -349,7 +350,7 @@ def scrape_product(url: str, profile: str) -> Product:
                         ))
                     except Exception:
                         # если ajax не сработал, создадим вариацию с дефолтной ценой и без изображения
-                        variations_data.append(Variation(
+                        tmp_vars.append(Variation(
                             sku="",
                             regular_price=(regular_price or 0.0),
                             sale_price=None,
@@ -361,7 +362,15 @@ def scrape_product(url: str, profile: str) -> Product:
 
                 # Если все ajax ответы идентичны (страница та же), не доверяем данным и переходим к URL/Playwright фолбэкам
                 if ajax_hashes and len(set(ajax_hashes.values())) == 1:
-                    variations_data = []
+                    tmp_vars = []
+                # Если ajax дал только базовые значения без отличий (цена=база, пустые sku/img) для всех опций — считаем, что не удалось
+                if tmp_vars:
+                    any_specific = any(
+                        (v.image_url is not None) or (v.sku and v.sku.strip()) or (regular_price is not None and v.regular_price != regular_price)
+                        for v in tmp_vars
+                    )
+                    if any_specific:
+                        variations_data = tmp_vars
 
 
         # Попытка через Playwright: имитируем клики по кнопкам вариаций и читаем цену/SKU/фото после смены
