@@ -142,19 +142,20 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
         if var_pa_slug and parent_attrs:
             var_attr_id = next((a["id"] for a in parent_attrs if a.get("variation")), None)
             if var_attr_id:
-                # цены для вариаций: если явных нет, используем parent regular_price
+                # цены и картинки из собранных вариаций, fallback на родителя
                 base_price = product.regular_price
                 var_payloads = []
-                # Привяжем главную картинку вариации: берём первое изображение товара
-                var_image = None
-                if payload.get("images"):
-                    var_image = payload["images"][0]
+                opt_to_var = {v.attributes.get(var_pa_slug): v for v in product.variations or []}
                 for opt in product.attributes.get(var_pa_slug, []):
+                    v = opt_to_var.get(opt)
                     vp = {"attributes": [{"id": var_attr_id, "option": opt}]}
-                    if base_price is not None:
-                        vp["regular_price"] = f"{base_price:.2f}"
-                    if var_image:
-                        vp["image"] = var_image
+                    price = (v.regular_price if v and v.regular_price is not None else base_price)
+                    if price is not None:
+                        vp["regular_price"] = f"{price:.2f}"
+                    if v and v.image_url:
+                        vp["image"] = {"src": v.image_url}
+                    if v and v.sku:
+                        vp["sku"] = v.sku
                     var_payloads.append(vp)
                 client.create_variations(result["id"], var_payloads)
     else:

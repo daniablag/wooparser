@@ -7,7 +7,7 @@ import re
 import httpx
 from bs4 import BeautifulSoup, Tag
 import yaml
-from .models import Product, Image
+from .models import Product, Image, Variation
 from .config import get_settings
 from .utils import RateLimiter, get_logger
 
@@ -219,6 +219,7 @@ def scrape_product(url: str, profile: str) -> Product:
         ]
         return any(p in v for p in placeholders)
 
+    variations_data: List[Variation] = []
     if obem_buttons:
         raw_values = [_text(b) for b in obem_buttons]
         raw_values = [v for v in raw_values if not _is_placeholder_option(v)]
@@ -238,6 +239,94 @@ def scrape_product(url: str, profile: str) -> Product:
                 active_val = _normalize(pa_slug, _text(active))
                 if active_val:
                     default_attributes[pa_slug] = active_val
+
+        # Попытаться собрать данные по вариациям через ajax-эндпоинт формы
+        form = soup.select_one(".product__modifications form[method=post]")
+        if form is not None:
+            action = (form.get("data-action") or form.get("action") or "").strip()
+            if action:
+                action_url = _abs_url(site_base or url, action)
+                hidden = form.select_one("input[name^=\"param[\"]")
+                param_name = hidden.get("name") if hidden else "param[obem]"
+                # построим карту значение -> подпись
+                value_to_label: Dict[str, str] = {}
+                for b in obem_buttons:
+                    label = _text(b)
+                    if _is_placeholder_option(label):
+                        continue
+                    val = (b.get("data-value") or "").strip()
+                    if val:
+                        value_to_label[val] = _normalize(pa_slug, label)
+                for val, label in value_to_label.items():
+                    try:
+                        rate.wait()
+                        with httpx.Client(timeout=settings.requests_timeout) as sclient:
+                            r = sclient.post(action_url, data={param_name: val})
+                        r.raise_for_status()
+                        # сначала пробыем как JSON
+                        var_sku: Optional[str] = None
+                        var_price: Optional[float] = None
+                        var_image_url: Optional[str] = None
+                        parsed_json = None
+                        try:
+                            parsed_json = r.json()
+                        except Exception:
+                            parsed_json = None
+                        if isinstance(parsed_json, dict):
+                            # эвристики по ключам
+                            for key in ("price", "regular_price", "price_html", "new_price"):
+                                if key in parsed_json and isinstance(parsed_json[key], (str, int, float)):
+                                    var_price = _price_to_float(str(parsed_json[key]))
+                                    break
+                            for key in ("sku", "article", "code"):
+                                if key in parsed_json and isinstance(parsed_json[key], str):
+                                    var_sku = parsed_json[key].strip() or None
+                                    break
+                            for key in ("image", "image_url", "img"):
+                                if key in parsed_json and isinstance(parsed_json[key], str):
+                                    var_image_url = _abs_url(site_base or url, parsed_json[key])
+                                    break
+                            # иногда бывает html
+                            if not (var_price and var_image_url):
+                                html_fragment = parsed_json.get("html") or parsed_json.get("content")
+                                if isinstance(html_fragment, str) and html_fragment:
+                                    frag = BeautifulSoup(html_fragment, "lxml")
+                                    if not var_price:
+                                        el = frag.select_one(sel.get("price_sale", "")) or frag.select_one(sel.get("price_regular", ""))
+                                        var_price = _price_to_float(_text(el)) if el else None
+                                    if not var_image_url:
+                                        img0 = frag.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
+                                        if img0 and img0.get("src"):
+                                            var_image_url = _abs_url(site_base or url, img0.get("src"))
+                        else:
+                            # HTML фрагмент
+                            frag = BeautifulSoup(r.text, "lxml")
+                            el = frag.select_one(sel.get("price_sale", "")) or frag.select_one(sel.get("price_regular", ""))
+                            var_price = _price_to_float(_text(el)) if el else None
+                            img0 = frag.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
+                            if img0 and img0.get("src"):
+                                var_image_url = _abs_url(site_base or url, img0.get("src"))
+
+                        variations_data.append(Variation(
+                            sku=var_sku or "",
+                            regular_price=var_price or (regular_price or 0.0),
+                            sale_price=None,
+                            stock_quantity=None,
+                            attributes={pa_slug: label},
+                            image_url=var_image_url,
+                        ))
+                    except Exception:
+                        # если ajax не сработал, создадим вариацию с дефолтной ценой и без изображения
+                        variations_data.append(Variation(
+                            sku="",
+                            regular_price=(regular_price or 0.0),
+                            sale_price=None,
+                            stock_quantity=None,
+                            attributes={pa_slug: label},
+                            image_url=None,
+                        ))
+        # конец ajax-зоны
+        # конец ajax-зоны
 
     # Категории по крошкам
     categories: List[str] = []
@@ -283,7 +372,7 @@ def scrape_product(url: str, profile: str) -> Product:
         regular_price=regular_price,
         sale_price=sale_price,
         stock_quantity=None,
-        variations=[],
+        variations=variations_data,
     )
 
 

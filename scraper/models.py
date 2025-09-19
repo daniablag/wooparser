@@ -12,6 +12,7 @@ class Variation(BaseModel):
     sale_price: Optional[float] = None
     stock_quantity: Optional[int] = None
     attributes: Dict[str, str] = Field(default_factory=dict)
+    image_url: Optional[str] = None
 
 class Product(BaseModel):
     external_id: str
