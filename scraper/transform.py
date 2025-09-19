@@ -28,6 +28,9 @@ def to_woo_product_payload(product: Product, status: str = "draft") -> dict:
     }
     if product.sku:
         payload["sku"] = product.sku
+    # Галерея/изображения товара: Woo позволяет передавать удалённые src
+    if product.images:
+        payload["images"] = [{"src": img.url, "alt": img.alt or product.name} for img in product.images]
     if product.type == "simple":
         if product.regular_price is not None:
             payload["regular_price"] = f"{product.regular_price:.2f}"
@@ -37,7 +40,6 @@ def to_woo_product_payload(product: Product, status: str = "draft") -> dict:
             payload["manage_stock"] = True
             payload["stock_quantity"] = product.stock_quantity
     else:
-        # Заглушка для variable: атрибуты/вариации наполняются отдельно
-        payload["attributes"] = []
-        payload["variations"] = []
+        # Для variable: атрибуты и вариации задаём в месте вызова (push), здесь только общие поля
+        pass
     return payload

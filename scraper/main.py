@@ -140,11 +140,16 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
             result = client.create_product(payload)
         # create variations based on var_pa_slug
         if var_pa_slug and parent_attrs:
-            var_attr_id = next((a["id"] for a in parent_attrs if a["variation"]), None)
+            var_attr_id = next((a["id"] for a in parent_attrs if a.get("variation")), None)
             if var_attr_id:
-                var_payloads = [{
-                    "attributes": [{"id": var_attr_id, "option": opt}],
-                } for opt in product.attributes.get(var_pa_slug, [])]
+                # цены для вариаций: если явных нет, используем parent regular_price
+                base_price = product.regular_price
+                var_payloads = []
+                for opt in product.attributes.get(var_pa_slug, []):
+                    vp = {"attributes": [{"id": var_attr_id, "option": opt}]}
+                    if base_price is not None:
+                        vp["regular_price"] = f"{base_price:.2f}"
+                    var_payloads.append(vp)
                 client.create_variations(result["id"], var_payloads)
     else:
         if existing and existing.get("woo_product_id"):
