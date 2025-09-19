@@ -260,8 +260,18 @@ def scrape_product(url: str, profile: str) -> Product:
                 for val, label in value_to_label.items():
                     try:
                         rate.wait()
-                        with httpx.Client(timeout=settings.requests_timeout) as sclient:
-                            r = sclient.post(action_url, data={param_name: val})
+                        ajax_headers = {
+                            "Referer": url,
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Accept": "application/json,text/html,*/*",
+                            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        }
+                        with httpx.Client(timeout=settings.requests_timeout, headers=ajax_headers, follow_redirects=True) as sclient:
+                            # сначала попробуем GET, как это часто делает фронтенд
+                            r = sclient.get(action_url, params={param_name: val})
+                            if r.status_code >= 400:
+                                # fallback на POST
+                                r = sclient.post(action_url, data={param_name: val})
                         r.raise_for_status()
                         # сначала пробыем как JSON
                         var_sku: Optional[str] = None
