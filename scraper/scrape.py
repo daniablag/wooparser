@@ -324,8 +324,14 @@ def scrape_product(url: str, profile: str) -> Product:
                         attributes={pa_slug: opt},
                         image_url=None,
                     ))
+            # Принимаем URL-варианты только если есть специфичные данные (sku/img или цена отличается от базовой)
             if tmp_vars_url:
-                variations_data = tmp_vars_url
+                any_specific = any(
+                    (v.image_url is not None) or (v.sku and v.sku.strip()) or (regular_price is not None and v.regular_price != regular_price)
+                    for v in tmp_vars_url
+                )
+                if any_specific:
+                    variations_data = tmp_vars_url
 
         # Попытаться собрать данные по вариациям через ajax-эндпоинт формы
         form = soup.select_one(".product__modifications form[method=post]")
