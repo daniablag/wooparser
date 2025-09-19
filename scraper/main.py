@@ -158,9 +158,13 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                 for opt in product.attributes.get(var_pa_slug, []):
                     v = opt_to_var.get(opt)
                     vp = {"attributes": [{"id": var_attr_id, "option": opt}]}
+                    # всегда создаём/обновляем manage_stock=false, чтобы не упиралось в остатки
+                    vp["manage_stock"] = False
                     price = (v.regular_price if v and v.regular_price is not None else base_price)
                     if price is not None:
                         vp["regular_price"] = f"{price:.2f}"
+                    if v and v.sale_price is not None:
+                        vp["sale_price"] = f"{v.sale_price:.2f}"
                     if v and v.image_url:
                         vp["image"] = {"src": v.image_url}
                     if v and v.sku:

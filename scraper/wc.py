@@ -63,22 +63,51 @@ class WooClient:
         return self.create_product(payload)
 
     def create_variations(self, product_id: int, payload_list: List[Dict[str, Any]]) -> Dict[str, Any]:
-        # Получим существующие вариации, чтобы не создавать дубликаты
+        # Загрузим существующие вариации
         existing = self._request("GET", self._wc_url(f"products/{product_id}/variations"))
+        existing_map = {}
         existing_keys = set()
         for v in existing if isinstance(existing, list) else []:
             attrs = v.get("attributes", [])
             key = tuple(sorted((a.get("id") or a.get("name"), a.get("option")) for a in attrs))
             existing_keys.add(key)
+            existing_map[key] = v
         to_create: List[Dict[str, Any]] = []
+        to_update: List[Dict[str, Any]] = []
         for p in payload_list:
             attrs = p.get("attributes", [])
             key = tuple(sorted((a.get("id") or a.get("name"), a.get("option")) for a in attrs))
-            if key not in existing_keys:
+            if key in existing_keys:
+                # Подготовим update только если есть изменения цены/sku/картинки
+                v = existing_map.get(key) or {}
+                update = {"id": v.get("id")}
+                if not update["id"]:
+                    continue
+                need_update = False
+                for fld, conv in (("regular_price", str), ("sale_price", str), ("sku", str)):
+                    if fld in p:
+                        new_val = conv(p[fld]) if p[fld] is not None else None
+                        if v.get(fld) != new_val:
+                            update[fld] = new_val
+                            need_update = True
+                if p.get("image") and p["image"].get("src"):
+                    img_src = p["image"]["src"]
+                    cur_src = (v.get("image") or {}).get("src")
+                    if img_src and img_src != cur_src:
+                        update["image"] = {"src": img_src}
+                        need_update = True
+                if need_update:
+                    to_update.append(update)
+            else:
                 to_create.append(p)
-        if not to_create:
-            return {"created": []}
-        return self._request("POST", self._wc_url(f"products/{product_id}/variations/batch"), json={"create": to_create})
+        payload: Dict[str, Any] = {}
+        if to_create:
+            payload["create"] = to_create
+        if to_update:
+            payload["update"] = to_update
+        if not payload:
+            return {"created": [], "updated": []}
+        return self._request("POST", self._wc_url(f"products/{product_id}/variations/batch"), json=payload)
 
     # Attributes
     def ensure_global_attribute(self, name_or_slug: str) -> int:

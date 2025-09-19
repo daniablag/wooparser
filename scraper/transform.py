@@ -26,7 +26,8 @@ def to_woo_product_payload(product: Product, status: str = "draft") -> dict:
             {"key": "external_id", "value": product.external_id},
         ],
     }
-    if product.sku:
+    # Для variable-продуктов не задаём SKU у родителя, чтобы не конфликтовать с SKU вариаций
+    if product.sku and product.type == "simple":
         payload["sku"] = product.sku
     # Галерея/изображения товара: Woo позволяет передавать удалённые src
     if product.images:
