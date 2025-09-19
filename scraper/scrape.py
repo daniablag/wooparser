@@ -330,6 +330,7 @@ def scrape_product(url: str, profile: str) -> Product:
                         else:
                             # HTML фрагмент: сайт отдаёт блок "Дивіться також" и т.п., не содержит данных вариаций
                             # сохраняем None, чтобы fallback ниже заполнил данными
+                            pass
 
                         variations_data.append(Variation(
                             sku=var_sku or "",
