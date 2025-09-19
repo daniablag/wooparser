@@ -379,7 +379,9 @@ def scrape_product(url: str, profile: str) -> Product:
                 from playwright.sync_api import sync_playwright
                 headless = get_settings().headless
                 option_selector = manifest.get("variations", {}).get("columns", {}).get("size") or ".modification__body .modification__list .modification__button"
-                price_sel = sel.get("price_sale") or sel.get("price_regular")
+                regular_price_sel = sel.get("price_regular")
+                sale_price_sel = sel.get("price_sale")
+                price_selectors = [s for s in [sale_price_sel, regular_price_sel] if s]
                 sku_sel = sel.get("sku")
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=headless)
@@ -404,34 +406,85 @@ def scrape_product(url: str, profile: str) -> Product:
                         label = labels_for_value.get(v, v)
                         # смена вариации через hidden input + событие change
                         href_before = page.url
-                        page.evaluate(
-                            """
-                            ([prop, value]) => {
-                              const selector = '.modification input[type="hidden"][data-prop="' + prop + '"]';
-                              const input = document.querySelector(selector);
-                              if (!input) return;
-                              if (window.jQuery) {
-                                window.jQuery(input).val(value).trigger('change');
-                              } else {
-                                input.value = value;
-                                input.dispatchEvent(new Event('change', { bubbles: true }));
-                              }
-                            }
-                            """,
-                            [prop, v]
-                        )
-                        # ждём смену URL или короткую стабилизацию
+                        # зафиксировать текущее значение цены для ожидания изменения
+                        before_prices = []
+                        for ps in price_selectors:
+                            try:
+                                txt = page.text_content(ps) or ""
+                            except Exception:
+                                txt = ""
+                            before_prices.append([ps, txt.strip()])
+
+                        # сначала пробуем клик по кнопке вариации
+                        btn = page.query_selector(f"{option_selector}[data-value=\"{v}\"]")
+                        if btn:
+                            try:
+                                btn.click()
+                            except Exception:
+                                pass
+                        else:
+                            # фолбэк — hidden input + change
+                            page.evaluate(
+                                """
+                                ([prop, value]) => {
+                                  const selector = '.modification input[type="hidden"][data-prop="' + prop + '"]';
+                                  const input = document.querySelector(selector);
+                                  if (!input) return;
+                                  if (window.jQuery) {
+                                    window.jQuery(input).val(value).trigger('change');
+                                  } else {
+                                    input.value = value;
+                                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                                  }
+                                }
+                                """,
+                                [prop, v]
+                            )
+
+                        # ждём смену URL или изменение текста цены
+                        changed = False
                         for _ in range(20):
                             page.wait_for_timeout(150)
                             if page.url != href_before:
+                                changed = True
                                 break
+                            try:
+                                cond = page.evaluate(
+                                    """
+                                    (arr) => {
+                                      for (const [sel, before] of arr) {
+                                        const el = document.querySelector(sel);
+                                        if (el) {
+                                          const now = (el.innerText || '').trim();
+                                          if (now && now !== (before || '')) return true;
+                                        }
+                                      }
+                                      return false;
+                                    }
+                                    """,
+                                    before_prices
+                                )
+                                if cond:
+                                    changed = True
+                                    break
+                            except Exception:
+                                pass
                         # дополнительная пауза на ajax
                         page.wait_for_timeout(300)
-                        vprice = None
-                        if price_sel:
-                            el = page.query_selector(price_sel)
+
+                        # считаем цены вариации
+                        vprice_sale = None
+                        if sale_price_sel:
+                            el = page.query_selector(sale_price_sel)
                             if el:
-                                vprice = _price_to_float((el.inner_text() or "").strip())
+                                vprice_sale = _price_to_float((el.inner_text() or "").strip())
+                        vprice_reg = None
+                        if regular_price_sel:
+                            el = page.query_selector(regular_price_sel)
+                            if el:
+                                vprice_reg = _price_to_float((el.inner_text() or "").strip())
+                        # эффективная цена (как раньше: отдаём цену скидки, если есть)
+                        vprice_effective = vprice_sale if (vprice_sale is not None) else vprice_reg
                         vsku = None
                         if sku_sel:
                             se = page.query_selector(sku_sel)
@@ -448,8 +501,8 @@ def scrape_product(url: str, profile: str) -> Product:
                         label_norm = _normalize(pa_slug, label)
                         variations_data.append(Variation(
                             sku=vsku or "",
-                            regular_price=vprice or (regular_price or 0.0),
-                            sale_price=None,
+                            regular_price=(vprice_effective if (vprice_effective is not None) else (regular_price or 0.0)),
+                            sale_price=(vprice_sale if (vprice_sale is not None) else None),
                             stock_quantity=None,
                             attributes={pa_slug: label_norm},
                             image_url=vimg_url,
