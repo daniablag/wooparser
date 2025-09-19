@@ -575,7 +575,7 @@ def debug_variations(url: str, profile: str) -> List[Dict[str, Optional[str]]]:
             continue
         val = (b.get("data-value") or "").strip()
         if val:
-            value_to_label[val] = _normalize(pa_slug, label)
+            value_to_label[val] = _normalize_value(profile, pa_slug, label)
 
     form = soup.select_one(".product__modifications form[method=post]")
     action = (form.get("data-action") or form.get("action") or "").strip() if form else ""
