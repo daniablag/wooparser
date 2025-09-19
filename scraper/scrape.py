@@ -132,6 +132,10 @@ def scrape_product(url: str, profile: str) -> Product:
     sel = manifest.get("product", {}).get("selectors", {})
     title = _text(soup.select_one(sel.get("title", "")))
     sku = _text(soup.select_one(sel.get("sku", "")))
+    if sku:
+        # убрать префикс "Артикул: " если присутствует
+        sku_clean = re.sub(r"^\s*Артикул\s*:\s*", "", sku, flags=re.IGNORECASE)
+        sku = sku_clean or sku
 
     sale_el = soup.select_one(sel.get("price_sale", "")) if sel.get("price_sale") else None
     reg_el = soup.select_one(sel.get("price_regular", "")) if sel.get("price_regular") else None
@@ -202,8 +206,25 @@ def scrape_product(url: str, profile: str) -> Product:
         m = values_map.get(pa_slug, {})
         return m.get(value, value)
 
+    def _is_placeholder_option(val: str) -> bool:
+        v = (val or "").strip().lower()
+        if not v:
+            return True
+        # частые варианты плейсхолдеров
+        placeholders = [
+            "будь який",  # укр. "любой"
+            "будь-який",
+            "any",
+            "любой",
+        ]
+        return any(p in v for p in placeholders)
+
     if obem_buttons:
         raw_values = [_text(b) for b in obem_buttons]
+        raw_values = [v for v in raw_values if not _is_placeholder_option(v)]
+        # уникализируем порядок
+        _seen = set()
+        raw_values = [v for v in raw_values if not (v in _seen or _seen.add(v))]
         pa_slug = attr_map.get("Обʼєм", "pa_obyem")
         norm_values = [_normalize(pa_slug, v) for v in raw_values if v]
         if norm_values:
