@@ -367,6 +367,57 @@ def scrape_product(url: str, profile: str) -> Product:
                             attributes={pa_slug: label},
                             image_url=None,
                         ))
+
+        # Попытка через Playwright: имитируем клики по кнопкам вариаций и читаем цену/SKU/фото после смены
+        if not variations_data and norm_values:
+            try:
+                from playwright.sync_api import sync_playwright
+                headless = get_settings().headless
+                option_selector = manifest.get("variations", {}).get("columns", {}).get("size") or ".modification__body .modification__list .modification__button"
+                price_sel = sel.get("price_sale") or sel.get("price_regular")
+                sku_sel = sel.get("sku")
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=headless)
+                    page = browser.new_page()
+                    page.goto(url, wait_until="domcontentloaded")
+                    btns = page.query_selector_all(option_selector)
+                    for btn in btns:
+                        label = (btn.inner_text() or "").strip()
+                        if _is_placeholder_option(label):
+                            continue
+                        btn.click()
+                        # подождём апдейта цены/активного класса
+                        page.wait_for_timeout(200)  # короткая пауза
+                        vprice = None
+                        if price_sel:
+                            el = page.query_selector(price_sel)
+                            if el:
+                                vprice = _price_to_float((el.inner_text() or "").strip())
+                        vsku = None
+                        if sku_sel:
+                            se = page.query_selector(sku_sel)
+                            if se:
+                                sk = (se.inner_text() or "").strip()
+                                if sk:
+                                    vsku = re.sub(r"^\s*Артикул\s*:\s*", "", sk, flags=re.IGNORECASE)
+                        img0 = page.query_selector(".gallery__photos .gallery__item:first-child .gallery__photo-img")
+                        vimg_url = None
+                        if img0:
+                            src = img0.get_attribute("src")
+                            if src:
+                                vimg_url = _abs_url(site_base or url, src)
+                        label_norm = _normalize(pa_slug, label)
+                        variations_data.append(Variation(
+                            sku=vsku or "",
+                            regular_price=vprice or (regular_price or 0.0),
+                            sale_price=None,
+                            stock_quantity=None,
+                            attributes={pa_slug: label_norm},
+                            image_url=vimg_url,
+                        ))
+                    browser.close()
+            except Exception:
+                pass
         # конец ajax-зоны
 
     # Категории по крошкам
