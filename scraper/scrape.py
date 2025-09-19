@@ -533,3 +533,81 @@ def iterate_urls_from_file(path, limit: int = 50, offset: int = 0):
         return []
     lines = [l.strip() for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
     return lines[offset : offset + limit]
+
+
+def debug_variations(url: str, profile: str) -> List[Dict[str, Optional[str]]]:
+    manifest = _load_manifest(profile)
+    settings = get_settings()
+    rate = RateLimiter(settings.rate_limit_rps)
+    results: List[Dict[str, Optional[str]]] = []
+
+    rate.wait()
+    with httpx.Client(timeout=settings.requests_timeout) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+
+    sel = manifest.get("product", {}).get("selectors", {})
+    site_base = manifest.get("site", {}).get("base_url", "")
+
+    # собрать опции
+    pa_slug = _load_csv_map(_profile_dir(profile) / "attributes.map.csv").get("Обʼєм", "pa_obyem")
+    obem_buttons = soup.select(".product__modifications .modification .modification__body .modification__list .modification__button")
+    value_to_label: Dict[str, str] = {}
+    for b in obem_buttons:
+        label = _text(b)
+        if _is_placeholder_option(label):
+            continue
+        val = (b.get("data-value") or "").strip()
+        if val:
+            value_to_label[val] = _normalize(pa_slug, label)
+
+    form = soup.select_one(".product__modifications form[method=post]")
+    action = (form.get("data-action") or form.get("action") or "").strip() if form else ""
+    hidden = form.select_one("input[name^=\"param[\"]") if form else None
+    param_name = hidden.get("name") if hidden else "param[obem]"
+
+    ajax_headers = {
+        "Referer": url,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json,text/html,*/*",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    }
+
+    for val, label in value_to_label.items():
+        entry: Dict[str, Optional[str]] = {"label": label, "ajax_get": None, "ajax_post": None, "price": None, "sku": None, "image": None}
+        if action:
+            action_url = _abs_url(site_base or url, action)
+            try:
+                rate.wait()
+                with httpx.Client(timeout=settings.requests_timeout, headers=ajax_headers, follow_redirects=True) as sclient:
+                    r = sclient.get(action_url, params={param_name: val})
+                    entry["ajax_get"] = f"{r.status_code} {r.headers.get('content-type','')}"
+                    if r.is_redirect:  # type: ignore[attr-defined]
+                        entry["ajax_get"] += f" -> {r.headers.get('location','')}"
+                    if r.status_code >= 400:
+                        rp = sclient.post(action_url, data={param_name: val})
+                        entry["ajax_post"] = f"{rp.status_code} {rp.headers.get('content-type','')}"
+            except Exception as e:
+                entry["ajax_get"] = f"error: {e}"
+
+        # после ajax попробуем вытащить из текущей страницы (или повторным GET страницы вариации, если удаётся вывести)
+        try:
+            # перезапрос страницы (часто ajax меняет серверно, но если нет — хотя бы текущие)
+            rate.wait()
+            with httpx.Client(timeout=settings.requests_timeout) as r2:
+                page = r2.get(url)
+                page.raise_for_status()
+                vsoup = BeautifulSoup(page.text, "lxml")
+            el = vsoup.select_one(sel.get("price_sale", "")) or vsoup.select_one(sel.get("price_regular", ""))
+            entry["price"] = _text(el) if el else None
+            sk = vsoup.select_one(sel.get("sku", ""))
+            entry["sku"] = re.sub(r"^\s*Артикул\s*:\s*", "", _text(sk), flags=re.IGNORECASE) if sk else None
+            img0 = vsoup.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
+            entry["image"] = _abs_url(site_base or url, img0.get("src")) if img0 and img0.get("src") else None
+        except Exception as e:
+            entry["price"] = entry["price"] or f"error: {e}"
+
+        results.append(entry)
+
+    return results

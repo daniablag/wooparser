@@ -65,6 +65,13 @@ def cluster_preview(profile: str = typer.Option(..., "--profile"), from_category
     clusters = do_cluster(profile=profile, from_category=from_category, limit=limit)
     rprint({"clusters": clusters})
 
+
+@app.command("debug-variations")
+def debug_variations_cmd(profile: str = typer.Option(..., "--profile"), url: str = typer.Option(..., "--url")) -> None:
+    from .scrape import debug_variations as do_debug
+    rows = do_debug(url=url, profile=profile)
+    rprint(rows)
+
 @app.command("validate")
 def validate(profile: str = typer.Option(..., "--profile"), url: str = typer.Option(..., "--url")) -> None:
     from .scrape import scrape_product
