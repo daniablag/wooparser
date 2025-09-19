@@ -98,27 +98,52 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
 
     existing = get_checkpoint_by_external_id(product.external_id, db_path=settings.db_path)
     if product.type == "variable":
-        # ensure attribute and terms first
-        from .wc import WooClient
-        attr_id = None
-        for pa_slug, options in product.attributes.items():
-            if not pa_slug.startswith("pa_"):
-                continue
-            attr_id = client.ensure_global_attribute(pa_slug)
-            client.ensure_attribute_terms(attr_id, options)
+        # Определяем вариативный атрибут (например, pa_obyem), исключая бренд
+        var_pa_slug = next((k for k, v in product.attributes.items() if k.startswith("pa_") and k != "pa_brand" and len(v) > 1), None)
+        if not var_pa_slug:
+            var_pa_slug = next((k for k in product.attributes.keys() if k.startswith("pa_") and k != "pa_brand"), None)
+        # ensure variable attribute and its terms
+        parent_attrs = []
+        if var_pa_slug:
+            var_options = product.attributes.get(var_pa_slug, [])
+            var_attr_id = client.ensure_global_attribute(var_pa_slug)
+            client.ensure_attribute_terms(var_attr_id, var_options)
+            parent_attrs.append({
+                "id": var_attr_id,
+                "variation": True,
+                "visible": True,
+                "options": var_options,
+            })
+            # default attribute
+            default_val = product.default_attributes.get(var_pa_slug)
+            if default_val:
+                payload["default_attributes"] = [{"id": var_attr_id, "option": default_val}]
+        # ensure brand attribute as обычный (не вариативный)
+        brand_opts = product.attributes.get("pa_brand", [])
+        if brand_opts:
+            brand_attr_id = client.ensure_global_attribute("pa_brand")
+            client.ensure_attribute_terms(brand_attr_id, brand_opts)
+            parent_attrs.append({
+                "id": brand_attr_id,
+                "variation": False,
+                "visible": True,
+                "options": brand_opts,
+            })
+        if parent_attrs:
+            payload["attributes"] = parent_attrs
         # create/update parent variable product
         if existing and existing.get("woo_product_id"):
             result = client.update_product(existing["woo_product_id"], payload)
         else:
             result = client.create_product(payload)
-        # create variations
-        pa_slug = next((k for k in product.attributes.keys() if k.startswith("pa_")), None)
-        if pa_slug:
-            var_payloads = [{
-                "attributes": [{"name": pa_slug, "option": opt}],
-                "regular_price": None,
-            } for opt in product.attributes.get(pa_slug, [])]
-            client.create_variations(result["id"], var_payloads)
+        # create variations based on var_pa_slug
+        if var_pa_slug and parent_attrs:
+            var_attr_id = next((a["id"] for a in parent_attrs if a["variation"]), None)
+            if var_attr_id:
+                var_payloads = [{
+                    "attributes": [{"id": var_attr_id, "option": opt}],
+                } for opt in product.attributes.get(var_pa_slug, [])]
+                client.create_variations(result["id"], var_payloads)
     else:
         if existing and existing.get("woo_product_id"):
             result = client.update_product(existing["woo_product_id"], payload)
