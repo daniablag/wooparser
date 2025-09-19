@@ -147,6 +147,20 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                     raise
         else:
             result = client.create_product(payload)
+        # Проставим категории: сопоставим слуги Woo и создадим при необходимости, сохраняя иерархию
+        # product.categories уже содержит список слугов от донора, упорядоченных по вложенности
+        cat_ids: list[int] = []
+        if product.categories:
+            try:
+                cat_ids = client.ensure_categories_hierarchy(product.categories)
+            except Exception:
+                cat_ids = []
+        if cat_ids:
+            try:
+                client.update_product(result["id"], {"categories": [{"id": cid} for cid in cat_ids]})
+            except Exception:
+                pass
+
         # create variations based on var_pa_slug
         if var_pa_slug and parent_attrs:
             var_attr_id = next((a["id"] for a in parent_attrs if a.get("variation")), None)
@@ -182,6 +196,18 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                     raise
         else:
             result = client.create_product(payload)
+        # Категории для simple
+        cat_ids: list[int] = []
+        if product.categories:
+            try:
+                cat_ids = client.ensure_categories_hierarchy(product.categories)
+            except Exception:
+                cat_ids = []
+        if cat_ids:
+            try:
+                client.update_product(result["id"], {"categories": [{"id": cid} for cid in cat_ids]})
+            except Exception:
+                pass
     upsert_product_checkpoint(product.external_id, result["id"], db_path=settings.db_path)
     rprint({"woo_product_id": result["id"], "status": result.get("status")})
 

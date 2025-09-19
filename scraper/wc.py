@@ -109,6 +109,60 @@ class WooClient:
             return {"created": [], "updated": []}
         return self._request("POST", self._wc_url(f"products/{product_id}/variations/batch"), json=payload)
 
+    # Product Categories (hierarchical taxonomy product_cat)
+    def _categories_list_page(self, page: int = 1, per_page: int = 100) -> list[dict]:
+        res = self._request("GET", self._wc_url("products/categories"), params={"page": page, "per_page": per_page})
+        return res if isinstance(res, list) else []
+
+    def find_category_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
+        page = 1
+        while True:
+            items = self._categories_list_page(page=page, per_page=100)
+            if not items:
+                break
+            for it in items:
+                if it.get("slug") == slug:
+                    return it
+            page += 1
+        return None
+
+    def create_category(self, name: str, slug: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"name": name, "slug": slug}
+        if parent_id:
+            payload["parent"] = parent_id
+        return self._request("POST", self._wc_url("products/categories"), json=payload)
+
+    def update_category_parent(self, category_id: int, parent_id: Optional[int]) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"parent": parent_id or 0}
+        return self._request("PUT", self._wc_url(f"products/categories/{category_id}"), json=payload)
+
+    def ensure_category(self, slug: str, name_fallback: Optional[str] = None, parent_id: Optional[int] = None) -> Dict[str, Any]:
+        found = self.find_category_by_slug(slug)
+        if found:
+            # При необходимости скорректируем parent
+            cur_parent = found.get("parent") or 0
+            want_parent = parent_id or 0
+            if cur_parent != want_parent:
+                try:
+                    found = self.update_category_parent(found["id"], parent_id)
+                except Exception:
+                    pass
+            return found
+        # Создадим
+        name = name_fallback or slug.replace("-", " ").title()
+        return self.create_category(name=name, slug=slug, parent_id=parent_id)
+
+    def ensure_categories_hierarchy(self, slugs_in_order: list[str]) -> list[int]:
+        ids: list[int] = []
+        parent_id: Optional[int] = None
+        for slug in slugs_in_order:
+            cat = self.ensure_category(slug=slug, name_fallback=None, parent_id=parent_id)
+            cid = cat.get("id")
+            if cid:
+                ids.append(cid)
+                parent_id = cid
+        return ids
+
     # Attributes
     def ensure_global_attribute(self, name_or_slug: str) -> int:
         attrs = self._request("GET", self._wc_url("products/attributes"))
