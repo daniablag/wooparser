@@ -648,3 +648,62 @@ def debug_variations(url: str, profile: str) -> List[Dict[str, Optional[str]]]:
         results.append(entry)
 
     return results
+
+
+def _guess_variant_url(base_url: str, label: str) -> Optional[str]:
+    m = re.search(r"(\d+)", label)
+    if not m:
+        return None
+    n = m.group(1)
+    if re.search(r"-(\d+)-ml/?$", base_url):
+        return re.sub(r"-(\d+)-ml/?$", f"-{n}-ml/", base_url)
+    # generic fallback: append size at end
+    if base_url.endswith('/'):
+        return base_url + f"{n}-ml/"
+    return base_url + f"/{n}-ml/"
+
+
+def debug_variant_urls(url: str, profile: str) -> List[Dict[str, Optional[str]]]:
+    manifest = _load_manifest(profile)
+    settings = get_settings()
+    rate = RateLimiter(settings.rate_limit_rps)
+    site_base = manifest.get("site", {}).get("base_url", "")
+    sel = manifest.get("product", {}).get("selectors", {})
+
+    rate.wait()
+    with httpx.Client(timeout=settings.requests_timeout) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+
+    obem_buttons = soup.select(".product__modifications .modification .modification__body .modification__list .modification__button")
+    labels = []
+    for b in obem_buttons:
+        label = _text(b)
+        if _is_placeholder_option(label):
+            continue
+        labels.append(label)
+
+    out: List[Dict[str, Optional[str]]] = []
+    for label in labels:
+        vurl = _guess_variant_url(url, label)
+        entry: Dict[str, Optional[str]] = {"label": label, "url": vurl, "price": None, "sku": None, "image": None}
+        if not vurl:
+            out.append(entry)
+            continue
+        try:
+            rate.wait()
+            with httpx.Client(timeout=settings.requests_timeout) as c:
+                r = c.get(vurl)
+                r.raise_for_status()
+                vsoup = BeautifulSoup(r.text, "lxml")
+            el = vsoup.select_one(sel.get("price_sale", "")) or vsoup.select_one(sel.get("price_regular", ""))
+            entry["price"] = _text(el) if el else None
+            sk = vsoup.select_one(sel.get("sku", ""))
+            entry["sku"] = re.sub(r"^\s*Артикул\s*:\s*", "", _text(sk), flags=re.IGNORECASE) if sk else None
+            img0 = vsoup.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
+            entry["image"] = _abs_url(site_base or vurl, img0.get("src")) if img0 and img0.get("src") else None
+        except Exception:
+            pass
+        out.append(entry)
+    return out
