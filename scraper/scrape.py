@@ -95,6 +95,25 @@ def _abs_url(base: str, url: str) -> str:
     return urljoin(base, url)
 
 
+def _is_placeholder_option(val: str) -> bool:
+    v = (val or "").strip().lower()
+    if not v:
+        return True
+    placeholders = [
+        "будь який",
+        "будь-який",
+        "any",
+        "любой",
+    ]
+    return any(p in v for p in placeholders)
+
+
+def _normalize_value(profile: str, pa_slug: str, value: str) -> str:
+    values_map = _load_values_maps(profile)
+    mapping = values_map.get(pa_slug, {})
+    return mapping.get(value, value)
+
+
 def scrape_product(url: str, profile: str) -> Product:
     # Фикстура для теста интеграции
     if url == FIXTURE_URL:
@@ -309,13 +328,8 @@ def scrape_product(url: str, profile: str) -> Product:
                                         if img0 and img0.get("src"):
                                             var_image_url = _abs_url(site_base or url, img0.get("src"))
                         else:
-                            # HTML фрагмент
-                            frag = BeautifulSoup(r.text, "lxml")
-                            el = frag.select_one(sel.get("price_sale", "")) or frag.select_one(sel.get("price_regular", ""))
-                            var_price = _price_to_float(_text(el)) if el else None
-                            img0 = frag.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
-                            if img0 and img0.get("src"):
-                                var_image_url = _abs_url(site_base or url, img0.get("src"))
+                            # HTML фрагмент: сайт отдаёт блок "Дивіться також" и т.п., не содержит данных вариаций
+                            # сохраняем None, чтобы fallback ниже заполнил данными
 
                         variations_data.append(Variation(
                             sku=var_sku or "",
