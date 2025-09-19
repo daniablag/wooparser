@@ -5,6 +5,7 @@ from urllib.parse import urljoin
 import csv
 import re
 import httpx
+import hashlib
 from bs4 import BeautifulSoup, Tag
 import yaml
 from .models import Product, Image, Variation
@@ -276,6 +277,7 @@ def scrape_product(url: str, profile: str) -> Product:
                     val = (b.get("data-value") or "").strip()
                     if val:
                         value_to_label[val] = _normalize(pa_slug, label)
+                ajax_hashes: Dict[str, str] = {}
                 for val, label in value_to_label.items():
                     try:
                         rate.wait()
@@ -292,6 +294,11 @@ def scrape_product(url: str, profile: str) -> Product:
                                 # fallback на POST
                                 r = sclient.post(action_url, data={param_name: val})
                         r.raise_for_status()
+                        # сохраняем хэш ответа для детекции "одинакового контента"
+                        try:
+                            ajax_hashes[val] = hashlib.md5(r.text.encode("utf-8", errors="ignore")).hexdigest()
+                        except Exception:
+                            ajax_hashes[val] = ""
                         # сначала пробыем как JSON
                         var_sku: Optional[str] = None
                         var_price: Optional[float] = None
@@ -351,6 +358,10 @@ def scrape_product(url: str, profile: str) -> Product:
                             image_url=None,
                         ))
         # конец ajax-зоны
+
+                # Если все ajax ответы идентичны (страница та же), не доверяем данным и переходим к URL/Playwright фолбэкам
+                if ajax_hashes and len(set(ajax_hashes.values())) == 1:
+                    variations_data = []
 
         # Fallback: если не удалось получить вариации через ajax, попробуем по URL-шаблону -{N}-ml
         if not variations_data and norm_values:
