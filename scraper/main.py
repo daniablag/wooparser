@@ -145,10 +145,16 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                 # цены для вариаций: если явных нет, используем parent regular_price
                 base_price = product.regular_price
                 var_payloads = []
+                # Привяжем главную картинку вариации: берём первое изображение товара
+                var_image = None
+                if payload.get("images"):
+                    var_image = payload["images"][0]
                 for opt in product.attributes.get(var_pa_slug, []):
                     vp = {"attributes": [{"id": var_attr_id, "option": opt}]}
                     if base_price is not None:
                         vp["regular_price"] = f"{base_price:.2f}"
+                    if var_image:
+                        vp["image"] = var_image
                     var_payloads.append(vp)
                 client.create_variations(result["id"], var_payloads)
     else:

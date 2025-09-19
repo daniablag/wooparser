@@ -280,8 +280,8 @@ def scrape_product(url: str, profile: str) -> Product:
         attributes=attributes,
         default_attributes=default_attributes,
         type=product_type,
-        regular_price=regular_price if product_type == "simple" else None,
-        sale_price=sale_price if product_type == "simple" else None,
+        regular_price=regular_price,
+        sale_price=sale_price,
         stock_quantity=None,
         variations=[],
     )

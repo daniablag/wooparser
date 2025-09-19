@@ -63,8 +63,22 @@ class WooClient:
         return self.create_product(payload)
 
     def create_variations(self, product_id: int, payload_list: List[Dict[str, Any]]) -> Dict[str, Any]:
-        # batch endpoint
-        return self._request("POST", self._wc_url(f"products/{product_id}/variations/batch"), json={"create": payload_list})
+        # Получим существующие вариации, чтобы не создавать дубликаты
+        existing = self._request("GET", self._wc_url(f"products/{product_id}/variations"))
+        existing_keys = set()
+        for v in existing if isinstance(existing, list) else []:
+            attrs = v.get("attributes", [])
+            key = tuple(sorted((a.get("id") or a.get("name"), a.get("option")) for a in attrs))
+            existing_keys.add(key)
+        to_create: List[Dict[str, Any]] = []
+        for p in payload_list:
+            attrs = p.get("attributes", [])
+            key = tuple(sorted((a.get("id") or a.get("name"), a.get("option")) for a in attrs))
+            if key not in existing_keys:
+                to_create.append(p)
+        if not to_create:
+            return {"created": []}
+        return self._request("POST", self._wc_url(f"products/{product_id}/variations/batch"), json={"create": to_create})
 
     # Attributes
     def ensure_global_attribute(self, name_or_slug: str) -> int:
