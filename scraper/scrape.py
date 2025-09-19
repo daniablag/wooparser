@@ -405,15 +405,16 @@ def scrape_product(url: str, profile: str) -> Product:
                         # смена вариации через hidden input + событие change
                         href_before = page.url
                         page.evaluate(
-                            "(prop, value) => {\n"
-                            "  const input = document.querySelector(`.modification input[type=\\"hidden\\"][data-prop=\\"${prop}\\"]`);\n"
-                            "  if (!input) return;\n"
-                            "  if (window.jQuery) {\n"
-                            "    window.jQuery(input).val(value).trigger('change');\n"
-                            "  } else {\n"
-                            "    input.value = value;\n"
-                            "    input.dispatchEvent(new Event('change', {bubbles:true}));\n"
-                            "  }\n"
+                            "(prop, value) => {\n" +
+                            "  var selector = '.modification input[type\\u003d\\"hidden\\"][data-prop\\u003d\\"' + prop + '\\"]';\n" +
+                            "  var input = document.querySelector(selector);\n" +
+                            "  if (!input) return;\n" +
+                            "  if (window.jQuery) {\n" +
+                            "    window.jQuery(input).val(value).trigger('change');\n" +
+                            "  } else {\n" +
+                            "    input.value = value;\n" +
+                            "    input.dispatchEvent(new Event('change', {bubbles:true}));\n" +
+                            "  }\n" +
                             "}",
                             [prop, v]
                         )
