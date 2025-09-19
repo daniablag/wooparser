@@ -97,10 +97,33 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
     client = WooClient.from_settings(settings)
 
     existing = get_checkpoint_by_external_id(product.external_id, db_path=settings.db_path)
-    if existing and existing.get("woo_product_id"):
-        result = client.update_product(existing["woo_product_id"], payload)
+    if product.type == "variable":
+        # ensure attribute and terms first
+        from .wc import WooClient
+        attr_id = None
+        for pa_slug, options in product.attributes.items():
+            if not pa_slug.startswith("pa_"):
+                continue
+            attr_id = client.ensure_global_attribute(pa_slug)
+            client.ensure_attribute_terms(attr_id, options)
+        # create/update parent variable product
+        if existing and existing.get("woo_product_id"):
+            result = client.update_product(existing["woo_product_id"], payload)
+        else:
+            result = client.create_product(payload)
+        # create variations
+        pa_slug = next((k for k in product.attributes.keys() if k.startswith("pa_")), None)
+        if pa_slug:
+            var_payloads = [{
+                "attributes": [{"name": pa_slug, "option": opt}],
+                "regular_price": None,
+            } for opt in product.attributes.get(pa_slug, [])]
+            client.create_variations(result["id"], var_payloads)
     else:
-        result = client.create_product(payload)
+        if existing and existing.get("woo_product_id"):
+            result = client.update_product(existing["woo_product_id"], payload)
+        else:
+            result = client.create_product(payload)
     upsert_product_checkpoint(product.external_id, result["id"], db_path=settings.db_path)
     rprint({"woo_product_id": result["id"], "status": result.get("status")})
 

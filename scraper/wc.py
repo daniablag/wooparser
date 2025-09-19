@@ -67,12 +67,20 @@ class WooClient:
         return self._request("POST", self._wc_url(f"products/{product_id}/variations/batch"), json={"create": payload_list})
 
     # Attributes
-    def ensure_global_attribute(self, name: str) -> int:
+    def ensure_global_attribute(self, name_or_slug: str) -> int:
         attrs = self._request("GET", self._wc_url("products/attributes"))
         for a in attrs:
-            if a.get("name") == name:
+            if a.get("slug") == name_or_slug or a.get("name") == name_or_slug:
                 return a["id"]
-        created = self._request("POST", self._wc_url("products/attributes"), json={"name": name, "type": "select"})
+        payload = {"type": "select"}
+        # если передан slug pa_*
+        if name_or_slug.startswith("pa_"):
+            slug = name_or_slug
+            label = slug[3:].replace("_", " ").title() or slug
+            payload.update({"name": label, "slug": slug})
+        else:
+            payload.update({"name": name_or_slug})
+        created = self._request("POST", self._wc_url("products/attributes"), json=payload)
         return created["id"]
 
     def ensure_attribute_terms(self, attr_id: int, options: List[str]) -> List[int]:
