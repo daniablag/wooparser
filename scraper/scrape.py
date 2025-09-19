@@ -589,6 +589,8 @@ def debug_variations(url: str, profile: str) -> List[Dict[str, Optional[str]]]:
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     }
 
+    debug_dir = _workspace_root() / "debug"
+    debug_dir.mkdir(exist_ok=True)
     for val, label in value_to_label.items():
         entry: Dict[str, Optional[str]] = {"label": label, "ajax_get": None, "ajax_post": None, "price": None, "sku": None, "image": None}
         if action:
@@ -600,9 +602,18 @@ def debug_variations(url: str, profile: str) -> List[Dict[str, Optional[str]]]:
                     entry["ajax_get"] = f"{r.status_code} {r.headers.get('content-type','')}"
                     if r.is_redirect:  # type: ignore[attr-defined]
                         entry["ajax_get"] += f" -> {r.headers.get('location','')}"
+                    # сохранить html ответа GET для анализа
+                    try:
+                        (debug_dir / f"ajax_get_{val}.html").write_text(r.text, encoding="utf-8")
+                    except Exception:
+                        pass
                     if r.status_code >= 400:
                         rp = sclient.post(action_url, data={param_name: val})
                         entry["ajax_post"] = f"{rp.status_code} {rp.headers.get('content-type','')}"
+                        try:
+                            (debug_dir / f"ajax_post_{val}.html").write_text(rp.text, encoding="utf-8")
+                        except Exception:
+                            pass
             except Exception as e:
                 entry["ajax_get"] = f"error: {e}"
 
