@@ -84,6 +84,7 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
     from .wc import WooClient
     from .config import get_settings
     from .store import upsert_product_checkpoint, get_checkpoint_by_external_id
+    import httpx
 
     settings = get_settings()
     if draft and publish:
@@ -128,7 +129,13 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
             payload["attributes"] = parent_attrs
         # create/update parent variable product
         if existing and existing.get("woo_product_id"):
-            result = client.update_product(existing["woo_product_id"], payload)
+            try:
+                result = client.update_product(existing["woo_product_id"], payload)
+            except httpx.HTTPStatusError as e:
+                if e.response is not None and e.response.status_code in (400, 404):
+                    result = client.create_product(payload)
+                else:
+                    raise
         else:
             result = client.create_product(payload)
         # create variations based on var_pa_slug
@@ -141,7 +148,13 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                 client.create_variations(result["id"], var_payloads)
     else:
         if existing and existing.get("woo_product_id"):
-            result = client.update_product(existing["woo_product_id"], payload)
+            try:
+                result = client.update_product(existing["woo_product_id"], payload)
+            except httpx.HTTPStatusError as e:
+                if e.response is not None and e.response.status_code in (400, 404):
+                    result = client.create_product(payload)
+                else:
+                    raise
         else:
             result = client.create_product(payload)
     upsert_product_checkpoint(product.external_id, result["id"], db_path=settings.db_path)
