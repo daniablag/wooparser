@@ -260,6 +260,73 @@ def scrape_product(url: str, profile: str) -> Product:
                 if active_val:
                     default_attributes[pa_slug] = active_val
 
+        # Вариант 1 (быстрый): если у кнопок есть href на страницы вариаций — используем их, без Playwright
+        # Строим соответствие нормализованная метка -> абсолютный href
+        value_to_href: Dict[str, str] = {}
+        for b in obem_buttons:
+            label = _text(b)
+            if _is_placeholder_option(label):
+                continue
+            href = (b.get("href") or "").strip()
+            if not href:
+                continue
+            href_abs = _abs_url(site_base or url, href)
+            norm_label = _normalize(pa_slug, label)
+            if norm_label and href_abs:
+                value_to_href[norm_label] = href_abs
+
+        if not variations_data and value_to_href and len(set(value_to_href.values())) >= 1 and product_type == "variable":
+            tmp_vars_url: List[Variation] = []
+            for opt in attributes.get(pa_slug, []):
+                href = value_to_href.get(opt)
+                if not href:
+                    continue
+                try:
+                    rate.wait()
+                    with httpx.Client(timeout=settings.requests_timeout, follow_redirects=True) as sclient:
+                        rvar = sclient.get(href)
+                        rvar.raise_for_status()
+                        vsoup = BeautifulSoup(rvar.text, "lxml")
+                    # цена: сначала скидочная, затем обычная
+                    v_sale_el = vsoup.select_one(sel.get("price_sale", "")) if sel.get("price_sale") else None
+                    v_reg_el = vsoup.select_one(sel.get("price_regular", "")) if sel.get("price_regular") else None
+                    vprice = None
+                    if v_sale_el:
+                        vprice = _price_to_float(_text(v_sale_el))
+                    if vprice is None and v_reg_el:
+                        vprice = _price_to_float(_text(v_reg_el))
+                    # sku
+                    vsku = None
+                    vsku_el = vsoup.select_one(sel.get("sku", "")) if sel.get("sku") else None
+                    if vsku_el:
+                        sk = _text(vsku_el)
+                        if sk:
+                            vsku = re.sub(r"^\s*Артикул\s*:\s*", "", sk, flags=re.IGNORECASE)
+                    # главное изображение
+                    img0 = vsoup.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
+                    vimg_url = None
+                    if img0 and img0.get("src"):
+                        vimg_url = _abs_url(site_base or href, img0.get("src"))
+                    tmp_vars_url.append(Variation(
+                        sku=vsku or "",
+                        regular_price=(vprice if vprice is not None else (regular_price or 0.0)),
+                        sale_price=None,
+                        stock_quantity=None,
+                        attributes={pa_slug: opt},
+                        image_url=vimg_url,
+                    ))
+                except Exception:
+                    tmp_vars_url.append(Variation(
+                        sku="",
+                        regular_price=(regular_price or 0.0),
+                        sale_price=None,
+                        stock_quantity=None,
+                        attributes={pa_slug: opt},
+                        image_url=None,
+                    ))
+            if tmp_vars_url:
+                variations_data = tmp_vars_url
+
         # Попытаться собрать данные по вариациям через ajax-эндпоинт формы
         form = soup.select_one(".product__modifications form[method=post]")
         if form is not None:
