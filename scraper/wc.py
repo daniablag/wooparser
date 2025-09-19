@@ -95,6 +95,17 @@ class WooClient:
                 ids.append(created["id"])
         return ids
 
+    # Product brands taxonomy (e.g., product_brand)
+    def ensure_term_in_taxonomy(self, taxonomy: str, name: str) -> Dict[str, Any]:
+        # Try to find by name
+        terms = self._request("GET", self._wp_url(taxonomy), params={"search": name, "per_page": 100})
+        for t in terms if isinstance(terms, list) else []:
+            if t.get("name", "").lower() == name.lower():
+                return t
+        # Create if not found
+        created = self._request("POST", self._wp_url(taxonomy), json={"name": name})
+        return created
+
     # Media (via WP REST)
     def post_media_binary(self, filename: str, data: bytes, alt: str = "") -> Dict[str, Any]:
         headers = {"Content-Type": "application/octet-stream", "Content-Disposition": f"attachment; filename={filename}"}

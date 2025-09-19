@@ -118,13 +118,12 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
             default_val = product.default_attributes.get(var_pa_slug)
             if default_val:
                 payload["default_attributes"] = [{"id": var_attr_id, "option": default_val}]
-        # Бренд не через атрибут, а через таксономию product_brand/brand (если подключён плагин брендов)
-        # Здесь же сохраним как тэг на всякий случай
+        # Бренд через таксономию product_brand
         brand_opts = product.attributes.get("pa_brand", [])
         if brand_opts:
-            payload.setdefault("tags", [])
-            for b in brand_opts:
-                payload["tags"].append({"name": b})
+            brand_term = client.ensure_term_in_taxonomy("product_brand", brand_opts[0])
+            payload.setdefault("brands", [])
+            payload["brands"] = [{"id": brand_term.get("id")}] if brand_term.get("id") else [{"name": brand_opts[0]}]
         if parent_attrs:
             payload["attributes"] = parent_attrs
         # create/update parent variable product
