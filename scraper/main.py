@@ -73,11 +73,6 @@ def debug_variations_cmd(profile: str = typer.Option(..., "--profile"), url: str
     rprint(rows)
 
 
-@app.command("debug-variant-urls")
-def debug_variant_urls_cmd(profile: str = typer.Option(..., "--profile"), url: str = typer.Option(..., "--url")) -> None:
-    from .scrape import debug_variant_urls as do_dbg_urls
-    rows = do_dbg_urls(url=url, profile=profile)
-    rprint(rows)
 
 @app.command("validate")
 def validate(profile: str = typer.Option(..., "--profile"), url: str = typer.Option(..., "--url")) -> None:

@@ -363,46 +363,6 @@ def scrape_product(url: str, profile: str) -> Product:
                 if ajax_hashes and len(set(ajax_hashes.values())) == 1:
                     variations_data = []
 
-        # Fallback: если не удалось получить вариации через ajax, попробуем по URL-шаблону -{N}-ml
-        if not variations_data and norm_values:
-            m = re.search(r"-(\d+)-ml/?$", url)
-            if m:
-                for label in norm_values:
-                    num_match = re.search(r"(\d+)", label)
-                    if not num_match:
-                        continue
-                    new_num = num_match.group(1)
-                    variant_url = re.sub(r"-(\d+)-ml/?$", f"-{new_num}-ml/", url)
-                    try:
-                        rate.wait()
-                        with httpx.Client(timeout=settings.requests_timeout) as sclient:
-                            vresp = sclient.get(variant_url)
-                            vresp.raise_for_status()
-                            vsoup = BeautifulSoup(vresp.text, "lxml")
-                        vel = vsoup.select_one(sel.get("price_sale", "")) or vsoup.select_one(sel.get("price_regular", ""))
-                        vprice = _price_to_float(_text(vel)) if vel else (regular_price or 0.0)
-                        vsku = _text(vsoup.select_one(sel.get("sku", "")))
-                        if vsku:
-                            vsku = re.sub(r"^\s*Артикул\s*:\s*", "", vsku, flags=re.IGNORECASE)
-                        vimg0 = vsoup.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
-                        vimg_url = _abs_url(site_base or variant_url, vimg0.get("src")) if vimg0 and vimg0.get("src") else None
-                        variations_data.append(Variation(
-                            sku=vsku or "",
-                            regular_price=vprice or (regular_price or 0.0),
-                            sale_price=None,
-                            stock_quantity=None,
-                            attributes={pa_slug: label},
-                            image_url=vimg_url,
-                        ))
-                    except Exception:
-                        variations_data.append(Variation(
-                            sku="",
-                            regular_price=(regular_price or 0.0),
-                            sale_price=None,
-                            stock_quantity=None,
-                            attributes={pa_slug: label},
-                            image_url=None,
-                        ))
 
         # Попытка через Playwright: имитируем клики по кнопкам вариаций и читаем цену/SKU/фото после смены
         if not variations_data and norm_values:
