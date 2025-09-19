@@ -373,7 +373,7 @@ def scrape_product(url: str, profile: str) -> Product:
                         variations_data = tmp_vars
 
 
-        # Попытка через Playwright: имитируем клики по кнопкам вариаций и читаем цену/SKU/фото после смены
+        # Попытка через Playwright: переключаем вариации через hidden input (data-prop) и читаем цену/SKU/фото после смены
         if not variations_data and norm_values:
             try:
                 from playwright.sync_api import sync_playwright
@@ -385,14 +385,45 @@ def scrape_product(url: str, profile: str) -> Product:
                     browser = p.chromium.launch(headless=headless)
                     page = browser.new_page()
                     page.goto(url, wait_until="domcontentloaded")
+                    # имя свойства (например, obem)
+                    prop_el = page.query_selector('.modification input[type="hidden"][data-prop]')
+                    prop = prop_el.get_attribute('data-prop') if prop_el else None
+                    # собрать значения опций
                     btns = page.query_selector_all(option_selector)
-                    for btn in btns:
-                        label = (btn.inner_text() or "").strip()
-                        if _is_placeholder_option(label):
+                    values = []
+                    labels_for_value: Dict[str, str] = {}
+                    for b in btns:
+                        txt = (b.inner_text() or "").strip()
+                        if _is_placeholder_option(txt):
                             continue
-                        btn.click()
-                        # подождём апдейта цены/активного класса
-                        page.wait_for_timeout(200)  # короткая пауза
+                        v = b.get_attribute('data-value') or ''
+                        if v and v not in values:
+                            values.append(v)
+                            labels_for_value[v] = txt
+                    for v in values:
+                        label = labels_for_value.get(v, v)
+                        # смена вариации через hidden input + событие change
+                        href_before = page.url
+                        page.evaluate(
+                            "(prop, value) => {\n"
+                            "  const input = document.querySelector(`.modification input[type=\\"hidden\\"][data-prop=\\"${prop}\\"]`);\n"
+                            "  if (!input) return;\n"
+                            "  if (window.jQuery) {\n"
+                            "    window.jQuery(input).val(value).trigger('change');\n"
+                            "  } else {\n"
+                            "    input.value = value;\n"
+                            "    input.dispatchEvent(new Event('change', {bubbles:true}));\n"
+                            "  }\n"
+                            "}",
+                            [prop, v]
+                        )
+                        # ждём смену URL или короткую стабилизацию
+                        for _ in range(20):
+                            page.wait_for_timeout(150)
+                            if page.url != href_before:
+                                break
+                        # дополнительная пауза на ajax
+                        page.wait_for_timeout(300)
                         vprice = None
                         if price_sel:
                             el = page.query_selector(price_sel)
