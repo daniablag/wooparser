@@ -54,9 +54,15 @@ def preview_product(profile: str = typer.Option(..., "--profile"), url: str = ty
     rprint(json.dumps(product.model_dump(), ensure_ascii=False, indent=2))
 
 @preview_app.command("category")
-def preview_category(profile: str = typer.Option(..., "--profile"), url: str = typer.Option(..., "--url"), limit: int = 20, offset: int = 0) -> None:
+def preview_category(
+    profile: str = typer.Option(..., "--profile"),
+    url: str = typer.Option(..., "--url"),
+    limit: int = 20,
+    offset: int = 0,
+    max_pages: int = typer.Option(None, "--max-pages")
+) -> None:
     from .scrape import collect_category_urls
-    urls = collect_category_urls(category_url=url, profile=profile, limit=limit, offset=offset)
+    urls = collect_category_urls(category_url=url, profile=profile, limit=limit, offset=offset, max_pages=max_pages)
     rprint({"count": len(urls), "sample": urls[:5]})
 
 @app.command("collect")

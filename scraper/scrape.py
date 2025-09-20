@@ -661,7 +661,7 @@ def _external_id_from_url(url: str) -> str:
     return u.rsplit("/", 1)[-1]
 
 
-def collect_category_urls(category_url: str, profile: str, limit: int = 20, offset: int = 0) -> List[str]:
+def collect_category_urls(category_url: str, profile: str, limit: int = 20, offset: int = 0, max_pages: Optional[int] = None) -> List[str]:
     manifest = _load_manifest(profile)
     settings = get_settings()
     rate = RateLimiter(settings.rate_limit_rps)
@@ -671,6 +671,7 @@ def collect_category_urls(category_url: str, profile: str, limit: int = 20, offs
 
     results: List[str] = []
     url = category_url
+    pages = 0
     while len(results) < (offset + limit) and url:
         rate.wait()
         with httpx.Client(timeout=settings.requests_timeout) as client:
@@ -686,6 +687,9 @@ def collect_category_urls(category_url: str, profile: str, limit: int = 20, offs
             results.append(full)
             if len(results) >= (offset + limit):
                 break
+        pages += 1
+        if max_pages is not None and pages >= max_pages:
+            break
         if next_sel:
             next_a = soup.select_one(next_sel)
             url = _abs_url(site_base, next_a.get("href")) if next_a and next_a.get("href") else None
