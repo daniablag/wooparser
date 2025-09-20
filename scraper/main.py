@@ -59,6 +59,20 @@ def preview_category(profile: str = typer.Option(..., "--profile"), url: str = t
     urls = collect_category_urls(category_url=url, profile=profile, limit=limit, offset=offset)
     rprint({"count": len(urls), "sample": urls[:5]})
 
+@app.command("collect")
+def collect(
+    profile: str = typer.Option(..., "--profile"),
+    from_category: str = typer.Option(..., "--from-category", help="URL категории донора"),
+    out: Path = typer.Option(Path("urls.txt"), "--out", help="Файл для записи URL товаров (по одному в строке)"),
+    limit: int = typer.Option(1000, "--limit"),
+    offset: int = typer.Option(0, "--offset"),
+) -> None:
+    from .scrape import collect_category_urls
+    urls = collect_category_urls(category_url=from_category, profile=profile, limit=limit, offset=offset)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(urls) + ("\n" if urls else ""), encoding="utf-8")
+    rprint({"written": len(urls), "file": str(out)})
+
 @app.command("cluster-preview")
 def cluster_preview(profile: str = typer.Option(..., "--profile"), from_category: str = typer.Option(..., "--from-category"), limit: int = 50) -> None:
     from .scrape import cluster_preview as do_cluster
