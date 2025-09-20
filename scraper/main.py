@@ -73,6 +73,18 @@ def collect(
     out.write_text("\n".join(urls) + ("\n" if urls else ""), encoding="utf-8")
     rprint({"written": len(urls), "file": str(out)})
 
+@app.command("collect-all")
+def collect_all(
+    profile: str = typer.Option(..., "--profile"),
+    out: Path = typer.Option(Path("urls_all.txt"), "--out"),
+    limit_per_category: int = typer.Option(1000, "--limit-per-category"),
+) -> None:
+    from .scrape import collect_all_product_urls
+    urls = collect_all_product_urls(profile=profile, limit_per_category=limit_per_category)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(urls) + ("\n" if urls else ""), encoding="utf-8")
+    rprint({"written": len(urls), "file": str(out)})
+
 @app.command("cluster-preview")
 def cluster_preview(profile: str = typer.Option(..., "--profile"), from_category: str = typer.Option(..., "--from-category"), limit: int = 50) -> None:
     from .scrape import cluster_preview as do_cluster

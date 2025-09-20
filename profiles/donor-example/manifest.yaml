@@ -4,6 +4,10 @@ site:
   obey_robots: true
   stop_on_captcha: true
 
+catalog:
+  root_url: "https://crooz.in.ua/katalog/"
+  category_link_selector: "a.children-pages-menu__link"
+
 listing:
   product_link: "a.catalogCard-image"
   pagination:

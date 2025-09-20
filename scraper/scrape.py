@@ -694,6 +694,62 @@ def collect_category_urls(category_url: str, profile: str, limit: int = 20, offs
     return results[offset : offset + limit]
 
 
+def collect_all_product_urls(profile: str, limit_per_category: int = 1000) -> List[str]:
+    manifest = _load_manifest(profile)
+    settings = get_settings()
+    rate = RateLimiter(settings.rate_limit_rps)
+
+    root_url = manifest.get("catalog", {}).get("root_url")
+    cat_link_sel = manifest.get("catalog", {}).get("category_link_selector") or "a"
+    if not root_url:
+        return []
+    seen_categories: set[str] = set()
+    to_visit: List[str] = [root_url]
+    product_urls: List[str] = []
+
+    while to_visit:
+        cur = to_visit.pop(0)
+        if cur in seen_categories:
+            continue
+        seen_categories.add(cur)
+
+        # собрать товары текущей категории (с пагинацией)
+        try:
+            urls = collect_category_urls(category_url=cur, profile=profile, limit=limit_per_category, offset=0)
+            product_urls.extend(urls)
+        except Exception:
+            pass
+
+        # найти подкатегории и добавить в очередь
+        try:
+            rate.wait()
+            with httpx.Client(timeout=settings.requests_timeout) as client:
+                resp = client.get(cur)
+                resp.raise_for_status()
+                soup = BeautifulSoup(resp.text, "lxml")
+            site_base = manifest.get("site", {}).get("base_url", cur)
+            for a in soup.select(cat_link_sel):
+                href = a.get("href")
+                if not href:
+                    continue
+                full = _abs_url(site_base, href)
+                # избегаем зацикливания на ссылке "Каталог"
+                if full in seen_categories or full in to_visit:
+                    continue
+                to_visit.append(full)
+        except Exception:
+            pass
+
+    # убрать дубликаты товаров, сохраняя порядок
+    seen: set[str] = set()
+    unique: List[str] = []
+    for u in product_urls:
+        if u not in seen:
+            unique.append(u)
+            seen.add(u)
+    return unique
+
+
 def cluster_preview(profile: str, from_category: str, limit: int = 50):
     # Простая кластеризация по базовому external_id (последний сегмент URL без вариации)
     urls = collect_category_urls(from_category, profile=profile, limit=limit)
