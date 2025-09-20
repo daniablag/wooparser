@@ -587,6 +587,7 @@ def scrape_product(url: str, profile: str) -> Product:
 
     # Категории по крошкам
     categories: List[str] = []
+    category_names: List[str] = []
     cat_map = _load_csv_map(_profile_dir(profile) / "categories.map.csv")
     bc_sel = manifest.get("categories", {}).get("breadcrumbs_selector")
     name_sel = manifest.get("categories", {}).get("breadcrumbs_name_selector")
@@ -608,6 +609,7 @@ def scrape_product(url: str, profile: str) -> Product:
             slug = cat_map.get(n)
             if slug and slug not in categories:
                 categories.append(slug)
+                category_names.append(n)
 
     # Бренд CROOZ
     attributes.setdefault("pa_brand", ["CROOZ"])  # всегда CROOZ
@@ -621,6 +623,7 @@ def scrape_product(url: str, profile: str) -> Product:
         description_html=description_html or None,
         short_description_html=None,
         categories=categories,
+        category_names=category_names,
         tags=[],
         images=images,
         attributes=attributes,

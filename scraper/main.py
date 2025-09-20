@@ -152,7 +152,7 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
         cat_ids: list[int] = []
         if product.categories:
             try:
-                cat_ids = client.ensure_categories_hierarchy(product.categories)
+                cat_ids = client.ensure_categories_hierarchy(product.categories, getattr(product, "category_names", None))
             except Exception:
                 cat_ids = []
         if cat_ids:
@@ -200,7 +200,7 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
         cat_ids: list[int] = []
         if product.categories:
             try:
-                cat_ids = client.ensure_categories_hierarchy(product.categories)
+                cat_ids = client.ensure_categories_hierarchy(product.categories, getattr(product, "category_names", None))
             except Exception:
                 cat_ids = []
         if cat_ids:

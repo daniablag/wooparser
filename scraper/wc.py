@@ -149,14 +149,15 @@ class WooClient:
                     pass
             return found
         # Создадим
-        name = name_fallback or slug.replace("-", " ").title()
+        name = name_fallback or slug.replace("-", " ")
         return self.create_category(name=name, slug=slug, parent_id=parent_id)
 
-    def ensure_categories_hierarchy(self, slugs_in_order: list[str]) -> list[int]:
+    def ensure_categories_hierarchy(self, slugs_in_order: list[str], names_in_order: Optional[list[str]] = None) -> list[int]:
         ids: list[int] = []
         parent_id: Optional[int] = None
-        for slug in slugs_in_order:
-            cat = self.ensure_category(slug=slug, name_fallback=None, parent_id=parent_id)
+        for idx, slug in enumerate(slugs_in_order):
+            fallback = names_in_order[idx] if names_in_order and idx < len(names_in_order) else None
+            cat = self.ensure_category(slug=slug, name_fallback=fallback, parent_id=parent_id)
             cid = cat.get("id")
             if cid:
                 ids.append(cid)

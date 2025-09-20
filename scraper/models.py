@@ -21,6 +21,7 @@ class Product(BaseModel):
     description_html: Optional[str] = None
     short_description_html: Optional[str] = None
     categories: List[str] = Field(default_factory=list)
+    category_names: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     images: List[Image] = Field(default_factory=list)
     attributes: Dict[str, List[str]] = Field(default_factory=dict)
