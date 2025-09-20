@@ -16,7 +16,7 @@ product:
   selectors:
     title: ".product-title"
     sku: ".product-header__code"
-    price_regular: ".product-price__item"
+    price_regular: ".product-price__old-price"
     price_sale: ".product-price__item.product-price__item--new"
     description_html: ".product-description.j-product-description .text"
     gallery_imgs: ".gallery__photos-list .gallery__item .gallery__photo-img"

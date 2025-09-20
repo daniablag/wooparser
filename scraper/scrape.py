@@ -251,7 +251,7 @@ def scrape_product(url: str, profile: str) -> Product:
         norm_values = [_normalize(pa_slug, v) for v in raw_values if v]
         if norm_values:
             attributes[pa_slug] = norm_values
-        if len(obem_buttons) > 1:
+        if len(norm_values) > 1:
             product_type = "variable"
         # дефолт из активной кнопки
         if active_sel:
