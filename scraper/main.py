@@ -208,6 +208,32 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                 client.update_product(result["id"], {"categories": [{"id": cid} for cid in cat_ids]})
             except Exception:
                 pass
+        # Бренд для simple через таксономию product_brand
+        brand_opts = product.attributes.get("pa_brand", [])
+        if brand_opts:
+            try:
+                brand_term = client.ensure_term_in_taxonomy("product_brand", brand_opts[0])
+                client.update_product(result["id"], {"brands": ([{"id": brand_term.get("id")}] if brand_term.get("id") else [{"name": brand_opts[0]}])})
+            except Exception:
+                pass
+        # Невариативные атрибуты для simple: создадим/обновим глобальные и привяжем к продукту
+        simple_attrs_payload = []
+        for slug, options in (product.attributes or {}).items():
+            if slug == "pa_brand":
+                continue
+            if not options:
+                continue
+            try:
+                attr_id = client.ensure_global_attribute(slug)
+                client.ensure_attribute_terms(attr_id, options)
+                simple_attrs_payload.append({"id": attr_id, "visible": True, "options": options})
+            except Exception:
+                continue
+        if simple_attrs_payload:
+            try:
+                client.update_product(result["id"], {"attributes": simple_attrs_payload})
+            except Exception:
+                pass
     upsert_product_checkpoint(product.external_id, result["id"], db_path=settings.db_path)
     rprint({"woo_product_id": result["id"], "status": result.get("status")})
 
