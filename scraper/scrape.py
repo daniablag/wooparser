@@ -260,6 +260,10 @@ def scrape_product(url: str, profile: str) -> Product:
                 active_val = _normalize(pa_slug, _text(active))
                 if active_val:
                     default_attributes[pa_slug] = active_val
+                    # если в конце заголовка после запятой стоит активное значение вариации — уберём его
+                    if title:
+                        pattern = r",\s*" + re.escape(active_val) + r"\s*$"
+                        title = re.sub(pattern, "", title)
 
         # Вариант 1 (быстрый): если у кнопок есть href на страницы вариаций — используем их, без Playwright
         # Строим соответствие нормализованная метка -> абсолютный href
