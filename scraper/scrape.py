@@ -7,6 +7,7 @@ import re
 import httpx
 import hashlib
 from bs4 import BeautifulSoup, Tag
+from slugify import slugify
 import yaml
 from .models import Product, Image, Variation
 from .config import get_settings
@@ -606,7 +607,7 @@ def scrape_product(url: str, profile: str) -> Product:
         if names:
             names = names[:-1]  # убрать последний элемент – название товара
         for n in names:
-            slug = cat_map.get(n)
+            slug = cat_map.get(n) or slugify(n)
             if slug and slug not in categories:
                 categories.append(slug)
                 category_names.append(n)
