@@ -174,7 +174,11 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                     vp = {"attributes": [{"id": var_attr_id, "option": opt}]}
                     # всегда создаём/обновляем manage_stock=false, чтобы не упиралось в остатки
                     vp["manage_stock"] = False
-                    price = (v.regular_price if v and v.regular_price is not None else base_price)
+                    price = None
+                    if v and v.regular_price is not None:
+                        price = v.regular_price
+                    elif base_price is not None:
+                        price = base_price
                     if price is not None:
                         vp["regular_price"] = f"{price:.2f}"
                     if v and v.sale_price is not None:

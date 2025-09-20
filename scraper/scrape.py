@@ -160,11 +160,17 @@ def scrape_product(url: str, profile: str) -> Product:
 
     sale_el = soup.select_one(sel.get("price_sale", "")) if sel.get("price_sale") else None
     reg_el = soup.select_one(sel.get("price_regular", "")) if sel.get("price_regular") else None
+    generic_el = soup.select_one(".product-price__item")
     sale_price = _price_to_float(_text(sale_el)) if sale_el else None
-    regular_price = _price_to_float(_text(reg_el)) if reg_el else None
-    if sale_price and not regular_price:
-        # иногда regular в другом месте — минимально подстрахуемся
-        regular_price = sale_price
+    regular_from_old = _price_to_float(_text(reg_el)) if reg_el else None
+    generic_price = _price_to_float(_text(generic_el)) if generic_el else None
+    # итоговые цены товара: если есть скидка и старая цена — используем пару (sale, old),
+    # иначе regular = generic (или sale), без скидки
+    regular_price = None
+    if sale_price is not None:
+        regular_price = regular_from_old if (regular_from_old is not None) else sale_price
+    if regular_price is None and generic_price is not None:
+        regular_price = generic_price
 
     desc_el = soup.select_one(sel.get("description_html", ""))
 
