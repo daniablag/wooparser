@@ -465,7 +465,8 @@ def scrape_product(url: str, profile: str) -> Product:
                 option_selector = manifest.get("variations", {}).get("columns", {}).get("size") or ".modification__body .modification__list .modification__button"
                 regular_price_sel = sel.get("price_regular")
                 sale_price_sel = sel.get("price_sale")
-                price_selectors = [s for s in [sale_price_sel, regular_price_sel] if s]
+                # для ожидания изменения цены используем sale или общий видимый прайс
+                price_selectors = [s for s in [sale_price_sel, ".product-price__item"] if s]
                 sku_sel = sel.get("sku")
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=headless)
@@ -562,13 +563,20 @@ def scrape_product(url: str, profile: str) -> Product:
                             el = page.query_selector(sale_price_sel)
                             if el:
                                 vprice_sale = _price_to_float((el.inner_text() or "").strip())
-                        vprice_reg = None
-                        if regular_price_sel:
-                            el = page.query_selector(regular_price_sel)
-                            if el:
-                                vprice_reg = _price_to_float((el.inner_text() or "").strip())
-                        # эффективная цена (как раньше: отдаём цену скидки, если есть)
-                        vprice_effective = vprice_sale if (vprice_sale is not None) else vprice_reg
+                        # общий текущий прайс (видимый), если нет скидки
+                        vprice_generic = None
+                        gel = page.query_selector(".product-price__item")
+                        if gel:
+                            vprice_generic = _price_to_float((gel.inner_text() or "").strip())
+                        # старая цена (для справки, не используем как текущую)
+                        vprice_old = None
+                        old_sel = regular_price_sel if regular_price_sel else ".product-price__old-price"
+                        if old_sel:
+                            oel = page.query_selector(old_sel)
+                            if oel:
+                                vprice_old = _price_to_float((oel.inner_text() or "").strip())
+                        # эффективная текущая цена вариации: скидка если есть, иначе видимый прайс
+                        vprice_effective = vprice_sale if (vprice_sale is not None) else vprice_generic
                         vsku = None
                         if sku_sel:
                             se = page.query_selector(sku_sel)
