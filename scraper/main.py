@@ -274,8 +274,19 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
     rprint({"woo_product_id": result["id"], "status": result.get("status")})
 
 @app.command("push-batch")
-def push_batch(profile: str = typer.Option(..., "--profile"), file: Path = typer.Option(..., "--file"), draft: bool = False, publish: bool = False, limit: int = 50, offset: int = 0, resume: bool = False) -> None:
-    from .scrape import iterate_urls_from_file
+def push_batch(
+    profile: str = typer.Option(..., "--profile"),
+    file: Path = typer.Option(..., "--file"),
+    draft: bool = False,
+    publish: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    resume: bool = False,
+    skip_processed: bool = typer.Option(False, "--skip-processed", help="Пропускать URL, уже прошедшие через checkpoint")
+) -> None:
+    from .scrape import iterate_urls_from_file, _external_id_from_url
+    from .store import get_checkpoint_by_external_id
+    from .config import get_settings
     include_patterns = os.environ.get("CLI_INCLUDE", "").split(",") if os.environ.get("CLI_INCLUDE") else []
     exclude_patterns = os.environ.get("CLI_EXCLUDE", "").split(",") if os.environ.get("CLI_EXCLUDE") else []
 
@@ -288,15 +299,27 @@ def push_batch(profile: str = typer.Option(..., "--profile"), file: Path = typer
                 return False
         return True
 
+    settings = get_settings()
     for url in iterate_urls_from_file(file, limit=limit, offset=offset):
         if not allowed(str(url)):
             continue
         try:
+            if skip_processed:
+                ext = _external_id_from_url(str(url))
+                chk = get_checkpoint_by_external_id(ext, db_path=settings.db_path)
+                if chk and chk.get("woo_product_id"):
+                    rprint(f"[yellow]SKIP processed[/yellow]: {url}")
+                    continue
             # вызывать как обычную функцию
             push_product(profile=profile, url=str(url), draft=draft, publish=publish)
         except SystemExit as e:
             if resume:
                 rprint(f"[yellow]Ошибка для {url}, продолжаю (--resume)[/yellow]")
+                continue
+            raise
+        except Exception as e:
+            if resume:
+                rprint(f"[yellow]Исключение для {url}: {e}; продолжаю (--resume)[/yellow]")
                 continue
             raise
 
