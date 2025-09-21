@@ -206,6 +206,11 @@ def push_product(profile: str = typer.Option(..., "--profile"), url: str = typer
                     vp = {"attributes": [{"id": var_attr_id, "option": opt}]}
                     # всегда создаём/обновляем manage_stock=false, чтобы не упиралось в остатки
                     vp["manage_stock"] = False
+                    # если у родителя есть общий статус — передадим его как fallback
+                    if getattr(product, "stock_status", None) in ("instock", "outofstock") and not (v and getattr(v, "stock_status", None)):
+                        vp["stock_status"] = product.stock_status
+                    if v and getattr(v, "stock_status", None) in ("instock", "outofstock"):
+                        vp["stock_status"] = v.stock_status
                     price = None
                     if v and v.regular_price is not None:
                         price = v.regular_price
