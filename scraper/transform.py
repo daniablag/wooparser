@@ -37,6 +37,9 @@ def to_woo_product_payload(product: Product, status: str = "draft") -> dict:
             payload["regular_price"] = f"{product.regular_price:.2f}"
         if product.sale_price is not None:
             payload["sale_price"] = f"{product.sale_price:.2f}"
+        # Статус наличия
+        if getattr(product, "stock_status", None) in ("instock", "outofstock"):
+            payload["stock_status"] = product.stock_status
         if product.stock_quantity is not None:
             payload["manage_stock"] = True
             payload["stock_quantity"] = product.stock_quantity

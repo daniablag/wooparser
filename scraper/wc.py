@@ -90,6 +90,10 @@ class WooClient:
                         if v.get(fld) != new_val:
                             update[fld] = new_val
                             need_update = True
+                # stock_status
+                if p.get("stock_status") in ("instock", "outofstock") and p.get("stock_status") != v.get("stock_status"):
+                    update["stock_status"] = p.get("stock_status")
+                    need_update = True
                 if p.get("image") and p["image"].get("src"):
                     img_src = p["image"]["src"]
                     cur_src = (v.get("image") or {}).get("src")

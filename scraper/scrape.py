@@ -77,7 +77,52 @@ def _load_values_maps(profile: str) -> Dict[str, Dict[str, str]]:
 
 
 def _text(el) -> str:
-    return re.sub(r"\s+", " ", el.get_text(strip=True)) if el else ""
+    return re.sub(r"\s+", " ", el.get_text(" ", strip=True)) if el else ""
+
+
+def _normalize_ws(value: str) -> str:
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+
+_STOCK_NO_TOKENS = (
+    "Немає в наявності",
+    "Нет в наличии",
+    "Out of stock",
+)
+_STOCK_YES_TOKENS = (
+    "В наявності",
+    "В наличии",
+    "In stock",
+)
+
+
+def _sanitize_attr_value(value: str) -> str:
+    v = _normalize_ws(value)
+    if not v:
+        return v
+    for tok in _STOCK_NO_TOKENS + _STOCK_YES_TOKENS:
+        if tok in v:
+            v = v.replace(tok, " ")
+    return _normalize_ws(v)
+
+
+def _parse_stock_status_from_soup(soup: BeautifulSoup) -> Optional[str]:
+    el = soup.select_one(".product-header__availability")
+    if not el:
+        return None
+    classes = el.get("class") or []
+    text = _normalize_ws(el.get_text(" ", strip=True)).lower()
+    if "product-header__availability--out-of-stock" in classes:
+        return "outofstock"
+    if any(t.lower() in text for t in ("немає в наявності", "нет в наличии", "out of stock")):
+        return "outofstock"
+    if "product-header__availability--in-stock" in classes:
+        return "instock"
+    if any(t.lower() in text for t in ("в наявності", "в наличии", "in stock")):
+        return "instock"
+    return None
 
 
 def _price_to_float(text: str) -> Optional[float]:
@@ -218,6 +263,9 @@ def scrape_product(url: str, profile: str) -> Product:
             seen.add(im.url)
     images = unique_images
 
+    # Наличие (общий статус страницы товара)
+    product_stock_status = _parse_stock_status_from_soup(soup)
+
     # Вариации/атрибуты
     attributes: Dict[str, List[str]] = {}
     default_attributes: Dict[str, str] = {}
@@ -248,7 +296,7 @@ def scrape_product(url: str, profile: str) -> Product:
 
     variations_data: List[Variation] = []
     if obem_buttons:
-        raw_values = [_text(b) for b in obem_buttons]
+        raw_values = [_sanitize_attr_value(_text(b)) for b in obem_buttons]
         raw_values = [v for v in raw_values if not _is_placeholder_option(v)]
         # уникализируем порядок
         _seen = set()
@@ -263,7 +311,7 @@ def scrape_product(url: str, profile: str) -> Product:
         if active_sel:
             active = soup.select_one(active_sel)
             if active:
-                active_val = _normalize(pa_slug, _text(active))
+                active_val = _normalize(pa_slug, _sanitize_attr_value(_text(active)))
                 if active_val:
                     default_attributes[pa_slug] = active_val
                     # если в конце заголовка после запятой стоит активное значение вариации — уберём его
@@ -275,7 +323,7 @@ def scrape_product(url: str, profile: str) -> Product:
         # Строим соответствие нормализованная метка -> абсолютный href
         value_to_href: Dict[str, str] = {}
         for b in obem_buttons:
-            label = _text(b)
+            label = _sanitize_attr_value(_text(b))
             if _is_placeholder_option(label):
                 continue
             href = (b.get("href") or "").strip()
@@ -318,10 +366,12 @@ def scrape_product(url: str, profile: str) -> Product:
                     vimg_url = None
                     if img0 and img0.get("src"):
                         vimg_url = _abs_url(site_base or href, img0.get("src"))
+                    v_stock_status = _parse_stock_status_from_soup(vsoup) or None
                     tmp_vars_url.append(Variation(
                         sku=vsku or "",
                         regular_price=(vprice if vprice is not None else (regular_price or 0.0)),
                         sale_price=None,
+                        stock_status=v_stock_status,
                         stock_quantity=None,
                         attributes={pa_slug: opt},
                         image_url=vimg_url,
@@ -331,6 +381,7 @@ def scrape_product(url: str, profile: str) -> Product:
                         sku="",
                         regular_price=(regular_price or 0.0),
                         sale_price=None,
+                        stock_status=None,
                         stock_quantity=None,
                         attributes={pa_slug: opt},
                         image_url=None,
@@ -419,6 +470,7 @@ def scrape_product(url: str, profile: str) -> Product:
                                         img0 = frag.select_one(".gallery__photos .gallery__item:first-child .gallery__photo-img")
                                         if img0 and img0.get("src"):
                                             var_image_url = _abs_url(site_base or url, img0.get("src"))
+                                    v_stock_status = _parse_stock_status_from_soup(frag) or None
                         else:
                             # HTML фрагмент: сайт отдаёт блок "Дивіться також" и т.п., не содержит данных вариаций
                             # сохраняем None, чтобы fallback ниже заполнил данными
@@ -428,6 +480,7 @@ def scrape_product(url: str, profile: str) -> Product:
                             sku=var_sku or "",
                             regular_price=var_price or (regular_price or 0.0),
                             sale_price=None,
+                            stock_status=v_stock_status if 'v_stock_status' in locals() else None,
                             stock_quantity=None,
                             attributes={pa_slug: label},
                             image_url=var_image_url,
@@ -438,6 +491,7 @@ def scrape_product(url: str, profile: str) -> Product:
                             sku="",
                             regular_price=(regular_price or 0.0),
                             sale_price=None,
+                            stock_status=None,
                             stock_quantity=None,
                             attributes={pa_slug: label},
                             image_url=None,
@@ -489,6 +543,7 @@ def scrape_product(url: str, profile: str) -> Product:
                             labels_for_value[v] = txt
                     for v in values:
                         label = labels_for_value.get(v, v)
+                        label = _sanitize_attr_value(label)
                         # смена вариации через hidden input + событие change
                         href_before = page.url
                         # зафиксировать текущее значение цены для ожидания изменения
@@ -590,11 +645,19 @@ def scrape_product(url: str, profile: str) -> Product:
                             src = img0.get_attribute("src")
                             if src:
                                 vimg_url = _abs_url(site_base or url, src)
+                        # статус наличия: out-of-stock класс
+                        v_stock_status = None
+                        try:
+                            out_el = page.query_selector('.product-header__availability.product-header__availability--out-of-stock')
+                            v_stock_status = "outofstock" if out_el else "instock"
+                        except Exception:
+                            v_stock_status = None
                         label_norm = _normalize(pa_slug, label)
                         variations_data.append(Variation(
                             sku=vsku or "",
                             regular_price=(vprice_effective if (vprice_effective is not None) else (regular_price or 0.0)),
                             sale_price=(vprice_sale if (vprice_sale is not None) else None),
+                            stock_status=v_stock_status,
                             stock_quantity=None,
                             attributes={pa_slug: label_norm},
                             image_url=vimg_url,
@@ -650,6 +713,7 @@ def scrape_product(url: str, profile: str) -> Product:
         type=product_type,
         regular_price=regular_price,
         sale_price=sale_price,
+        stock_status=product_stock_status,
         stock_quantity=None,
         variations=variations_data,
     )

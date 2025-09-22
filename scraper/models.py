@@ -10,6 +10,7 @@ class Variation(BaseModel):
     sku: str
     regular_price: float
     sale_price: Optional[float] = None
+    stock_status: Optional[Literal["instock", "outofstock"]] = None
     stock_quantity: Optional[int] = None
     attributes: Dict[str, str] = Field(default_factory=dict)
     image_url: Optional[str] = None
@@ -29,5 +30,6 @@ class Product(BaseModel):
     type: Literal["simple", "variable"] = "simple"
     regular_price: Optional[float] = None
     sale_price: Optional[float] = None
+    stock_status: Optional[Literal["instock", "outofstock"]] = None
     stock_quantity: Optional[int] = None
     variations: List[Variation] = Field(default_factory=list)
